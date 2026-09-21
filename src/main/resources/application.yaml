@@ -1,0 +1,17 @@
+spring:
+  application:
+    name: PulseGuard
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55440/pulseguard}
+    username: ${SPRING_DATASOURCE_USERNAME:pulseguard}
+    password: ${SPRING_DATASOURCE_PASSWORD:pulseguard}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
