@@ -1,10 +1,13 @@
 spring:
   application:
     name: PulseGuard
+  # Loads .env from the working directory when present; ignored when it is not.
+  config:
+    import: optional:file:.env[.properties]
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55440/pulseguard}
-    username: ${SPRING_DATASOURCE_USERNAME:pulseguard}
-    password: ${SPRING_DATASOURCE_PASSWORD:pulseguard}
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
   jpa:
     hibernate:
       ddl-auto: validate
@@ -13,5 +16,26 @@ spring:
     enabled: true
   data:
     redis:
-      host: ${SPRING_DATA_REDIS_HOST:localhost}
-      port: ${SPRING_DATA_REDIS_PORT:6379}
+      host: ${SPRING_DATA_REDIS_HOST}
+      port: ${SPRING_DATA_REDIS_PORT}
+      # Short, because auth reads Redis on the request path and fails open on error.
+      timeout: ${SPRING_DATA_REDIS_TIMEOUT}
+      connect-timeout: ${SPRING_DATA_REDIS_TIMEOUT}
+
+pulseguard:
+  jwt:
+    # Base64-encoded HMAC-SHA key, >= 256 bits. Generate: openssl rand -base64 48
+    secret: ${PULSEGUARD_JWT_SECRET}
+    # Set during a key rotation; tokens signed with it still verify. Clear when refresh tokens age out.
+    previous-secret: ${PULSEGUARD_JWT_PREVIOUS_SECRET:}
+    issuer: ${PULSEGUARD_JWT_ISSUER}
+    audience: ${PULSEGUARD_JWT_AUDIENCE}
+    # Short: an access token cannot be revoked without a denylist lookup on every request.
+    access-expiration: ${PULSEGUARD_JWT_ACCESS_EXPIRATION}
+    # Long, but rotated and revoked on every use.
+    refresh-expiration: ${PULSEGUARD_JWT_REFRESH_EXPIRATION}
+    clock-skew: ${PULSEGUARD_JWT_CLOCK_SKEW}
+  login:
+    max-attempts: ${PULSEGUARD_LOGIN_MAX_ATTEMPTS}
+    max-attempts-per-ip: ${PULSEGUARD_LOGIN_MAX_ATTEMPTS_PER_IP}
+    window: ${PULSEGUARD_LOGIN_WINDOW}
