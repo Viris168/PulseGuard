@@ -3,6 +3,8 @@ package com.viris.PulseGuard.monitor;
 import com.viris.PulseGuard.auth.User;
 import com.viris.PulseGuard.enumeration.*;
 import jakarta.persistence.*;
+import org.hibernate.annotations.Generated;
+import org.hibernate.generator.EventType;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -61,6 +63,9 @@ public class Monitor {
     @Version
     private long version;
 
+    // Written by the column's DB default; @Generated reads it back after insert so the
+    // create response carries the real timestamp instead of null.
+    @Generated(event = EventType.INSERT)
     @Column(name = "created_at", nullable = false, updatable = false, insertable = false)
     private Instant createdAt;
 }

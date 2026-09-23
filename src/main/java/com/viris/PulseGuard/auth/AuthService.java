@@ -8,7 +8,7 @@ import com.viris.PulseGuard.auth.dto.UserResponse;
 import com.viris.PulseGuard.auth.jwt.JwtService;
 import com.viris.PulseGuard.auth.jwt.ParsedToken;
 import com.viris.PulseGuard.auth.jwt.TokenType;
-import com.viris.PulseGuard.auth.mapper.UserMapper;
+import com.viris.PulseGuard.auth.jwt.UserMapper;
 import com.viris.PulseGuard.auth.security.LoginRateLimiter;
 import com.viris.PulseGuard.auth.security.TokenDenylist;
 import com.viris.PulseGuard.common.exception.EmailAlreadyUsedException;

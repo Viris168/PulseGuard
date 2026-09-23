@@ -1,6 +1,6 @@
 package com.viris.PulseGuard.auth;
 
-import com.viris.PulseGuard.auth.mapper.UserMapper;
+import com.viris.PulseGuard.auth.jwt.UserMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;

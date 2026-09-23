@@ -1,4 +1,4 @@
-package com.viris.PulseGuard.auth.mapper;
+package com.viris.PulseGuard.auth.jwt;
 
 import com.viris.PulseGuard.auth.User;
 import com.viris.PulseGuard.auth.dto.RegisterRequest;

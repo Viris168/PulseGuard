@@ -39,3 +39,10 @@ pulseguard:
     max-attempts: ${PULSEGUARD_LOGIN_MAX_ATTEMPTS}
     max-attempts-per-ip: ${PULSEGUARD_LOGIN_MAX_ATTEMPTS_PER_IP}
     window: ${PULSEGUARD_LOGIN_WINDOW}
+  check:
+    # Handshake only; the response is bounded per monitor by its own timeout_ms.
+    connect-timeout: ${PULSEGUARD_CHECK_CONNECT_TIMEOUT}
+    # Slack on top of the monitor timeout for the hard ceiling on one check.
+    grace-timeout: ${PULSEGUARD_CHECK_GRACE_TIMEOUT}
+    user-agent: ${PULSEGUARD_CHECK_USER_AGENT}
+    max-error-length: ${PULSEGUARD_CHECK_MAX_ERROR_LENGTH}

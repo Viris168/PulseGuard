@@ -77,4 +77,14 @@ class MonitorRepositoryTest extends AbstractRepositoryTest {
         assertThatThrownBy(() -> monitors.saveAndFlush(stale))
                 .isInstanceOf(OptimisticLockingFailureException.class);
     }
+
+    @Test
+    void populatesCreatedAtFromTheDatabaseDefaultOnInsert() {
+        // created_at is insertable=false; @Generated must read the DB value back,
+        // otherwise the create response would carry null.
+        Monitor monitor = newMonitor(newUser("created@example.com"), "m");
+
+        assertThat(monitor.getCreatedAt()).isNotNull();
+    }
+
 }
