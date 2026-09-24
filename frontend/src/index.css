@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-zinc-50 text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100;
+}
+
+/* Chart tokens. --series-1 is validated (dataviz palette check) against the card surfaces below. */
+:root {
+  --chart-surface: #ffffff;
+  --chart-grid: #e4e4e7;
+  --chart-axis: #71717a;
+  --series-1: #2a78d6;
+  --status-down: #ef4444;
+}
+
+html.dark {
+  --chart-surface: #18181b;
+  --chart-grid: #27272a;
+  --chart-axis: #a1a1aa;
+  --series-1: #3987e5;
+  --status-down: #f87171;
+}
+
+/* Ask AI mascot. Every use is wrapped in motion-safe: so reduced-motion users get a still image. */
+@theme {
+  --animate-pg-float: pg-float 3.2s ease-in-out infinite;
+  --animate-pg-float-slow: pg-float 3.8s ease-in-out infinite;
+  --animate-pg-shadow: pg-shadow 3.2s ease-in-out infinite;
+  --animate-pg-blink: pg-blink 4.5s ease-in-out infinite;
+  --animate-pg-beat: pg-beat 2.4s ease-in-out infinite;
+  --animate-pg-beat-fast: pg-beat 0.9s ease-in-out infinite;
+  --animate-pg-look: pg-look 1.6s ease-in-out infinite;
+  --animate-pg-hop: pg-hop 0.6s ease-out;
+
+  @keyframes pg-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-7px); }
+  }
+  /* The ground shadow shrinks as the orbs rise. */
+  @keyframes pg-shadow {
+    0%, 100% { transform: scaleX(1); opacity: 0.55; }
+    50% { transform: scaleX(0.8); opacity: 0.3; }
+  }
+  @keyframes pg-blink {
+    0%, 90%, 100% { transform: scaleY(1); }
+    94% { transform: scaleY(0.1); }
+  }
+  /* The trace draws itself left to right, holds, then fades for the next beat. */
+  @keyframes pg-beat {
+    0% { stroke-dashoffset: 36; opacity: 1; }
+    45% { stroke-dashoffset: 0; opacity: 1; }
+    80% { stroke-dashoffset: 0; opacity: 1; }
+    100% { stroke-dashoffset: 0; opacity: 0.25; }
+  }
+  @keyframes pg-look {
+    0%, 100% { transform: translateX(0); }
+    30% { transform: translateX(-2.5px); }
+    70% { transform: translateX(2.5px); }
+  }
+  @keyframes pg-hop {
+    0% { transform: translateY(0) scale(1, 1); }
+    25% { transform: translateY(0) scale(1.08, 0.9); }
+    55% { transform: translateY(-14px) scale(0.95, 1.06); }
+    80% { transform: translateY(0) scale(1.04, 0.96); }
+    100% { transform: translateY(0) scale(1, 1); }
+  }
+}
