@@ -14,6 +14,30 @@ spring:
     open-in-view: false
   flyway:
     enabled: true
+  quartz:
+    job-store-type: jdbc
+    jdbc:
+      # V5__quartz_tables.sql creates the qrtz_* tables; Flyway owns the schema.
+      initialize-schema: never
+    auto-startup: ${PULSEGUARD_SCHEDULER_ENABLED}
+    # Let in-flight checks finish and save their rows instead of being cut off mid-request.
+    wait-for-jobs-to-complete-on-shutdown: true
+    overwrite-existing-jobs: true
+    properties:
+      org.quartz.scheduler.instanceName: pulseguard
+      org.quartz.scheduler.instanceId: AUTO
+      org.quartz.jobStore.driverDelegateClass: org.quartz.impl.jdbcjobstore.PostgreSQLDelegate
+      # Row locks in qrtz_locks guarantee a trigger fires on exactly one instance.
+      org.quartz.jobStore.isClustered: true
+      org.quartz.jobStore.clusterCheckinInterval: 15000
+      # JobDataMap holds strings only (the monitor id), never Java-serialized blobs.
+      org.quartz.jobStore.useProperties: true
+      # A fire later than this counts as missed and gets the trigger's misfire policy.
+      org.quartz.jobStore.misfireThreshold: 60000
+      # Checks block for up to timeoutMs + connect + grace. Throughput is about
+      # threadCount / worst-case-seconds checks per second: 20 threads at 10s is ~2/s,
+      # or ~600 monitors on a 5-minute interval per instance.
+      org.quartz.threadPool.threadCount: ${PULSEGUARD_SCHEDULER_THREADS}
   data:
     redis:
       host: ${SPRING_DATA_REDIS_HOST}
@@ -21,6 +45,14 @@ spring:
       # Short, because auth reads Redis on the request path and fails open on error.
       timeout: ${SPRING_DATA_REDIS_TIMEOUT}
       connect-timeout: ${SPRING_DATA_REDIS_TIMEOUT}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # health is public; the rest require ADMIN (SecurityConfig). Never "*": env and
+        # heapdump would leak configuration and memory contents.
+        include: health,metrics,quartz
 
 pulseguard:
   jwt:
@@ -46,3 +78,13 @@ pulseguard:
     grace-timeout: ${PULSEGUARD_CHECK_GRACE_TIMEOUT}
     user-agent: ${PULSEGUARD_CHECK_USER_AGENT}
     max-error-length: ${PULSEGUARD_CHECK_MAX_ERROR_LENGTH}
+  scheduling:
+    # Random delay before a monitor's first check (capped by its interval) to spread load.
+    jitter: ${PULSEGUARD_SCHEDULER_JITTER}
+    # Re-sync Quartz jobs with active monitors at startup; the database is the source of truth.
+    reconcile-on-startup: ${PULSEGUARD_SCHEDULER_RECONCILE_ON_STARTUP}
+  incident:
+    # Consecutive failures before DOWN + incident; must be >= 2 (never alert on one blip).
+    failure-threshold: ${PULSEGUARD_INCIDENT_FAILURE_THRESHOLD}
+    # Consecutive passes before a DOWN monitor is UP again and its incident resolves.
+    recovery-threshold: ${PULSEGUARD_INCIDENT_RECOVERY_THRESHOLD}

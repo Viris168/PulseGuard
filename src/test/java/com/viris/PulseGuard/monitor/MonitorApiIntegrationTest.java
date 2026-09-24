@@ -8,6 +8,7 @@ import com.viris.PulseGuard.auth.security.LoginRateLimiter;
 import com.viris.PulseGuard.auth.security.TokenDenylist;
 import com.viris.PulseGuard.common.net.SafeUrlValidator;
 import com.viris.PulseGuard.enumeration.Plan;
+import com.viris.PulseGuard.scheduling.SchedulerService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -82,6 +83,8 @@ class MonitorApiIntegrationTest {
     MonitorRepository monitors;
     @Autowired
     ObjectMapper objectMapper;
+    @Autowired
+    SchedulerService schedulerService;
 
     private String aliceToken;
     private String bobToken;
@@ -174,8 +177,9 @@ class MonitorApiIntegrationTest {
         mockMvc.perform(delete("/api/monitors/" + aliceMonitor).header(HttpHeaders.AUTHORIZATION, bob))
                 .andExpect(status().isNotFound());
 
-        // Alice's monitor survived every attempt.
+        // Alice's monitor, and its schedule, survived every attempt.
         assertThat(monitors.findById(aliceMonitor)).isPresent();
+        assertThat(schedulerService.isScheduled(aliceMonitor)).isTrue();
     }
 
     @Test
@@ -204,10 +208,15 @@ class MonitorApiIntegrationTest {
         long id = idOf(createMonitor(aliceToken), objectMapper);
         String alice = "Bearer " + aliceToken;
 
+        assertThat(schedulerService.isScheduled(id)).as("scheduled on create").isTrue();
+
         mockMvc.perform(post("/api/monitors/" + id + "/pause").header(HttpHeaders.AUTHORIZATION, alice))
                 .andExpect(jsonPath("$.isActive").value(false));
+        assertThat(schedulerService.isScheduled(id)).as("unscheduled on pause").isFalse();
+
         mockMvc.perform(post("/api/monitors/" + id + "/resume").header(HttpHeaders.AUTHORIZATION, alice))
                 .andExpect(jsonPath("$.isActive").value(true));
+        assertThat(schedulerService.isScheduled(id)).as("scheduled again on resume").isTrue();
     }
 
     @Test
@@ -219,6 +228,7 @@ class MonitorApiIntegrationTest {
                 .andExpect(status().isNoContent());
 
         assertThat(monitors.findById(id)).isEmpty();
+        assertThat(schedulerService.isScheduled(id)).as("unscheduled on delete").isFalse();
     }
 
     @Test

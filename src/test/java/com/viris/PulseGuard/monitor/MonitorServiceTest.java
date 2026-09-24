@@ -11,6 +11,7 @@ import com.viris.PulseGuard.enumeration.MonitorState;
 import com.viris.PulseGuard.enumeration.Plan;
 import com.viris.PulseGuard.monitor.dto.MonitorRequest;
 import com.viris.PulseGuard.monitor.dto.MonitorResponse;
+import com.viris.PulseGuard.scheduling.SchedulerService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -42,6 +43,8 @@ class MonitorServiceTest {
     private UserRepository userRepository;
     @Mock
     private SafeUrlValidator urlValidator;
+    @Mock
+    private SchedulerService schedulerService;
 
     private MonitorService service;
     private User owner;
@@ -49,7 +52,8 @@ class MonitorServiceTest {
     @BeforeEach
     void setUp() {
         // PlanLimits is a pure lookup — exercise the real limits, not a stub.
-        service = new MonitorService(monitorRepository, userRepository, new PlanLimits(), urlValidator);
+        service = new MonitorService(monitorRepository, userRepository, new PlanLimits(), urlValidator,
+                schedulerService);
         owner = new User();
         owner.setEmail("owner@example.com");
         owner.setPlan(Plan.PRO);
@@ -84,6 +88,16 @@ class MonitorServiceTest {
         verify(monitorRepository).save(any(Monitor.class));
         assertThat(response.name()).isEqualTo("API health");
         assertThat(response.url()).isEqualTo("https://example.com/health");
+    }
+
+    @Test
+    void createSchedulesTheNewMonitor() {
+        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(owner));
+        when(monitorRepository.countByUserId(OWNER_ID)).thenReturn(0L);
+
+        service.createMonitor(OWNER_ID, request());
+
+        verify(schedulerService).schedule(any(Monitor.class));
     }
 
     @Test
@@ -242,6 +256,39 @@ class MonitorServiceTest {
         assertThat(monitor.getIntervalSeconds()).isEqualTo(300);
     }
 
+    @Test
+    void updateReschedulesWhenIntervalChanges() {
+        Monitor monitor = ownedMonitor(); // 300s
+        when(monitorRepository.findByIdAndUserId(MONITOR_ID, OWNER_ID)).thenReturn(Optional.of(monitor));
+
+        service.updateMonitor(OWNER_ID, MONITOR_ID, request()); // 60s
+
+        verify(schedulerService).reschedule(monitor);
+    }
+
+    @Test
+    void updateDoesNotRescheduleWhenOnlyNameChanges() {
+        Monitor monitor = ownedMonitor(); // 300s
+        when(monitorRepository.findByIdAndUserId(MONITOR_ID, OWNER_ID)).thenReturn(Optional.of(monitor));
+
+        service.updateMonitor(OWNER_ID, MONITOR_ID, request("https://example.com/old", 300));
+
+        verify(schedulerService, never()).reschedule(any());
+    }
+
+    @Test
+    void updateDoesNotRescheduleAPausedMonitor() {
+        // Rescheduling would recreate the job via its fallback and un-pause the checks.
+        Monitor monitor = ownedMonitor();
+        monitor.setActive(false);
+        when(monitorRepository.findByIdAndUserId(MONITOR_ID, OWNER_ID)).thenReturn(Optional.of(monitor));
+
+        service.updateMonitor(OWNER_ID, MONITOR_ID, request());
+
+        verify(schedulerService, never()).reschedule(any());
+        verify(schedulerService, never()).schedule(any());
+    }
+
     // --- pause / resume -------------------------------------------------
 
     @Test
@@ -252,6 +299,7 @@ class MonitorServiceTest {
 
         assertThat(service.pauseMonitor(OWNER_ID, MONITOR_ID).isActive()).isFalse();
         assertThat(monitor.getState()).isEqualTo(MonitorState.DOWN);
+        verify(schedulerService).unschedule(MONITOR_ID);
     }
 
     @Test
@@ -261,6 +309,7 @@ class MonitorServiceTest {
         when(monitorRepository.findByIdAndUserId(MONITOR_ID, OWNER_ID)).thenReturn(Optional.of(monitor));
 
         assertThat(service.resumeMonitor(OWNER_ID, MONITOR_ID).isActive()).isTrue();
+        verify(schedulerService).schedule(monitor);
     }
 
     @Test
@@ -269,6 +318,16 @@ class MonitorServiceTest {
 
         assertThatThrownBy(() -> service.pauseMonitor(OWNER_ID, MONITOR_ID))
                 .isInstanceOf(MonitorNotFoundException.class);
+        verify(schedulerService, never()).unschedule(any());
+    }
+
+    @Test
+    void resumeOfAnotherUsersMonitorDoesNotSchedule() {
+        when(monitorRepository.findByIdAndUserId(MONITOR_ID, OWNER_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.resumeMonitor(OWNER_ID, MONITOR_ID))
+                .isInstanceOf(MonitorNotFoundException.class);
+        verify(schedulerService, never()).schedule(any());
     }
 
     // --- delete ---------------------------------------------------------
@@ -281,6 +340,7 @@ class MonitorServiceTest {
         service.deleteMonitor(OWNER_ID, MONITOR_ID);
 
         verify(monitorRepository).delete(monitor);
+        verify(schedulerService).unschedule(MONITOR_ID);
     }
 
     @Test
@@ -291,5 +351,7 @@ class MonitorServiceTest {
                 .isInstanceOf(MonitorNotFoundException.class);
 
         verify(monitorRepository, never()).delete(any());
+        // One tenant must never be able to stop another tenant's checks.
+        verify(schedulerService, never()).unschedule(any());
     }
 }

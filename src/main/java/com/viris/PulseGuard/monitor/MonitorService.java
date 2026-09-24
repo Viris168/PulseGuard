@@ -9,6 +9,7 @@ import com.viris.PulseGuard.common.net.SafeUrlValidator;
 import com.viris.PulseGuard.enumeration.Plan;
 import com.viris.PulseGuard.monitor.dto.MonitorRequest;
 import com.viris.PulseGuard.monitor.dto.MonitorResponse;
+import com.viris.PulseGuard.scheduling.SchedulerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -25,15 +26,18 @@ public class MonitorService {
     private final UserRepository userRepository;
     private final PlanLimits planLimits;
     private final SafeUrlValidator urlValidator;
+    private final SchedulerService schedulerService;
 
     public MonitorService(MonitorRepository monitorRepository,
                           UserRepository userRepository,
                           PlanLimits planLimits,
-                          SafeUrlValidator urlValidator) {
+                          SafeUrlValidator urlValidator,
+                          SchedulerService schedulerService) {
         this.monitorRepository = monitorRepository;
         this.userRepository = userRepository;
         this.planLimits = planLimits;
         this.urlValidator = urlValidator;
+        this.schedulerService = schedulerService;
     }
 
     @Transactional
@@ -53,6 +57,7 @@ public class MonitorService {
         monitor.setUser(user);
         applyRequest(monitor, request);
         monitorRepository.save(monitor);
+        schedulerService.schedule(monitor);
 
         log.info("Created monitorId={} for userId={}", monitor.getId(), userId);
         return MonitorResponse.from(monitor);
@@ -86,13 +91,19 @@ public class MonitorService {
         // machine belongs to IncidentEngine, and editing a name must not mark a DOWN
         // monitor UP. The entity is managed, so dirty checking flushes these edits and
         // @Version guards the write.
+        int oldInterval = monitor.getIntervalSeconds();
         applyRequest(monitor, request);
+        // Only a new interval needs a new trigger; a paused monitor has no job to change,
+        // and resume will schedule it with whatever interval it has by then.
+        if (monitor.getIntervalSeconds() != oldInterval && monitor.isActive()) {
+            schedulerService.reschedule(monitor);
+        }
 
         log.info("Updated monitorId={} for userId={}", monitorId, userId);
         return MonitorResponse.from(monitor);
     }
 
-    /** Pausing keeps history and incident state; the scheduler skips inactive monitors. */
+    /** Pausing keeps history and incident state, and removes the monitor's check job. */
     @Transactional
     public MonitorResponse pauseMonitor(Long userId, Long monitorId) {
         return setActive(userId, monitorId, false);
@@ -106,12 +117,20 @@ public class MonitorService {
     @Transactional
     public void deleteMonitor(Long userId, Long monitorId) {
         monitorRepository.delete(requireOwnedMonitor(userId, monitorId));
+        schedulerService.unschedule(monitorId);
         log.info("Deleted monitorId={} for userId={}", monitorId, userId);
     }
 
     private MonitorResponse setActive(Long userId, Long monitorId, boolean active) {
         Monitor monitor = requireOwnedMonitor(userId, monitorId);
         monitor.setActive(active);
+        // After the ownership check: another tenant's id has already become a 404 here.
+        // Resume schedules from scratch, because pausing deleted the job.
+        if (active) {
+            schedulerService.schedule(monitor);
+        } else {
+            schedulerService.unschedule(monitorId);
+        }
         log.info("{} monitorId={} for userId={}", active ? "Resumed" : "Paused", monitorId, userId);
         return MonitorResponse.from(monitor);
     }

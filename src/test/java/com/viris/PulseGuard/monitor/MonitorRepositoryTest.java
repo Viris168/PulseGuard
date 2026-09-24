@@ -7,6 +7,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.OptimisticLockingFailureException;
 
+import java.time.Instant;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -85,6 +87,25 @@ class MonitorRepositoryTest extends AbstractRepositoryTest {
         Monitor monitor = newMonitor(newUser("created@example.com"), "m");
 
         assertThat(monitor.getCreatedAt()).isNotNull();
+    }
+
+    @Test
+    void touchLastCheckedAtLeavesVersionAloneSoConcurrentEditsStillSave() {
+        Monitor stale = newMonitor(newUser("touch@example.com"), "m");
+        long versionBefore = stale.getVersion();
+        Instant checkedAt = Instant.parse("2026-09-24T10:00:00Z");
+        em.clear();
+
+        assertThat(monitors.touchLastCheckedAt(stale.getId(), checkedAt)).isEqualTo(1);
+        em.clear();
+
+        Monitor loaded = monitors.findById(stale.getId()).orElseThrow();
+        assertThat(loaded.getLastCheckedAt()).isEqualTo(checkedAt);
+        assertThat(loaded.getVersion()).isEqualTo(versionBefore);
+
+        // An edit made from a copy loaded before the check still goes through.
+        stale.setName("renamed");
+        monitors.saveAndFlush(stale);
     }
 
 }
