@@ -1,3 +1,4 @@
 package com.viris.PulseGuard.enumeration;
 
-public enum NotificationStatus { SENT, FAILED }
+/** PENDING: claimed, send in progress. A row stuck in PENDING means the app died mid-send. */
+public enum NotificationStatus { PENDING, SENT, FAILED }

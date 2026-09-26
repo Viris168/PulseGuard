@@ -100,8 +100,20 @@ class AuthFlowIntegrationTest {
     @Test
     void rejectsATamperedTokenWith401() throws Exception {
         mockMvc.perform(get("/api/auth/me")
-                        .header("Authorization", "Bearer " + accessToken.substring(0, accessToken.length() - 1) + "X"))
+                        .header("Authorization", "Bearer " + tamperSignature(accessToken)))
                 .andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * Changes the signature's first character. Not the last: in base64url the final character
+     * of an HMAC-SHA256 signature carries only 4 real bits, so swapping it can leave the
+     * decoded bytes unchanged and the token still valid, which made this test flaky.
+     */
+    private static String tamperSignature(String token) {
+        int signatureStart = token.lastIndexOf('.') + 1;
+        char original = token.charAt(signatureStart);
+        char replacement = original == 'A' ? 'B' : 'A';
+        return token.substring(0, signatureStart) + replacement + token.substring(signatureStart + 1);
     }
 
     @Test

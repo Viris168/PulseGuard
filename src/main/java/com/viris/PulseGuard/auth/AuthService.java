@@ -15,6 +15,9 @@ import com.viris.PulseGuard.common.exception.EmailAlreadyUsedException;
 import com.viris.PulseGuard.common.exception.InvalidCredentialsException;
 import com.viris.PulseGuard.common.exception.PasswordUnchangedException;
 import com.viris.PulseGuard.common.exception.TooManyAttemptsException;
+import com.viris.PulseGuard.enumeration.ChannelType;
+import com.viris.PulseGuard.notification.NotificationChannel;
+import com.viris.PulseGuard.notification.repository.NotificationChannelRepository;
 import io.jsonwebtoken.JwtException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,6 +41,7 @@ public class AuthService {
     private final JwtService jwtService;
     private final TokenDenylist denylist;
     private final LoginRateLimiter rateLimiter;
+    private final NotificationChannelRepository channels;
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
@@ -47,9 +51,19 @@ public class AuthService {
         }
 
         User saved = users.save(UserMapper.toEntity(request, passwordEncoder.encode(request.password())));
+        createDefaultEmailChannel(saved);
         log.info("Registered user id={}", saved.getId());
 
         return issueTokens(UserPrincipal.from(saved), UserMapper.from(saved));
+    }
+
+    /** Alerts need a channel; every account starts with its own email, in the same transaction. */
+    private void createDefaultEmailChannel(User user) {
+        NotificationChannel channel = new NotificationChannel();
+        channel.setUser(user);
+        channel.setType(ChannelType.EMAIL);
+        channel.setTarget(user.getEmail());
+        channels.save(channel);
     }
 
     /**

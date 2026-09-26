@@ -7,6 +7,7 @@ import com.viris.PulseGuard.enumeration.NotificationEventType;
 import com.viris.PulseGuard.enumeration.NotificationStatus;
 import com.viris.PulseGuard.incident.Incident;
 import com.viris.PulseGuard.auth.User;
+import com.viris.PulseGuard.notification.repository.NotificationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
