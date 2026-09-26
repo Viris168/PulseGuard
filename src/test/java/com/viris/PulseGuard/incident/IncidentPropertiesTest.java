@@ -1,5 +1,6 @@
 package com.viris.PulseGuard.incident;
 
+import com.viris.PulseGuard.incident.dto.IncidentProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { AlertCircle, ArrowLeft, ArrowRight, Sparkles } from 'lucide-react'
+import { AlertCircle, ArrowRight, Sparkles } from 'lucide-react'
+import { BackLink } from '../components/ui/BackLink'
 import { summarizeIncident } from '../api/ai'
 import { loadErrorMessage } from '../api/errors'
 import { getIncident } from '../api/incidents'
@@ -57,13 +58,7 @@ export function IncidentDetailPage() {
   }, [id])
 
   const back = (
-    <Link
-      to="/incidents"
-      className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
-    >
-      <ArrowLeft className="size-4" aria-hidden />
-      Back to incidents
-    </Link>
+    <BackLink to="/incidents">Back to incidents</BackLink>
   )
 
   if (error) {

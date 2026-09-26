@@ -1,5 +1,6 @@
 package com.viris.PulseGuard.common.exception;
 
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
@@ -64,5 +65,17 @@ public class GlobalExceptionHandler {
         }
         return ResponseEntity.badRequest()
                 .body(ApiError.of(HttpStatus.BAD_REQUEST.value(), "Validation failed", fieldErrors));
+    }
+
+    /**
+     * The row changed between this request's read and its write (@Version). Not retried for
+     * the user: they edited stale data and should see the current version first. Hibernate's
+     * message names internal classes, so it is not passed through.
+     */
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<ApiError> handleConcurrentUpdate(OptimisticLockingFailureException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiError.of(HttpStatus.CONFLICT.value(),
+                        "This resource was changed by someone else. Reload and try again."));
     }
 }

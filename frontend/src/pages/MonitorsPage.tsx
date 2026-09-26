@@ -8,7 +8,8 @@ import { useAuth } from '../auth/authContext'
 import { formatMonitorLimit, limitsFor, nextPlan, planInfo } from '../lib/plans'
 import { UpgradePrompt } from '../components/billing/UpgradePrompt'
 import { PageHeader } from '../components/layout/PageHeader'
-import { Button, ButtonLink } from '../components/ui/Button'
+import { Button } from '../components/ui/Button'
+import { PushButton, PushButtonLink } from '../components/ui/PushButton'
 import { Card } from '../components/ui/Card'
 import { CheckBars } from '../components/ui/CheckBars'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -91,15 +92,15 @@ export function MonitorsPage() {
   const upgradeTo = user && nextPlan(user.plan)
 
   const addButton = atLimit ? (
-    <Button disabled title={`Your plan allows ${maxMonitors} monitors`}>
+    <PushButton type="button" disabled title={`Your plan allows ${maxMonitors} monitors`}>
       <Plus className="size-4" aria-hidden />
       Add monitor
-    </Button>
+    </PushButton>
   ) : (
-    <ButtonLink to="/monitors/new">
+    <PushButtonLink to="/monitors/new">
       <Plus className="size-4" aria-hidden />
       Add monitor
-    </ButtonLink>
+    </PushButtonLink>
   )
 
   return (

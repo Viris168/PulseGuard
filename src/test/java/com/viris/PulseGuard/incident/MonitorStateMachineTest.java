@@ -3,6 +3,8 @@ package com.viris.PulseGuard.incident;
 import com.viris.PulseGuard.enumeration.CheckResult;
 import com.viris.PulseGuard.enumeration.IncidentAction;
 import com.viris.PulseGuard.enumeration.MonitorState;
+import com.viris.PulseGuard.incident.dto.IncidentProperties;
+import com.viris.PulseGuard.incident.dto.Transition;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;

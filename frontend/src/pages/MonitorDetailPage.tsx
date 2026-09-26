@@ -3,7 +3,6 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   AlertCircle,
   AlertTriangle,
-  ArrowLeft,
   Clock,
   ExternalLink,
   HeartPulse,
@@ -16,6 +15,7 @@ import {
   Trash2,
   XCircle,
 } from 'lucide-react'
+import { BackLink } from '../components/ui/BackLink'
 import { loadErrorMessage } from '../api/errors'
 import { getMonitor, getMonitorStats, listChecks, listPings, pauseMonitor, resumeMonitor, sendTestPing } from '../api/monitors'
 import { listIncidents } from '../api/incidents'
@@ -133,13 +133,7 @@ export function MonitorDetailPage() {
   }
 
   const back = (
-    <Link
-      to="/monitors"
-      className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
-    >
-      <ArrowLeft className="size-4" aria-hidden />
-      Back to monitors
-    </Link>
+    <BackLink to="/monitors">Back to monitors</BackLink>
   )
 
   if (loadError) {

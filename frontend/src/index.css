@@ -79,3 +79,96 @@ html.dark {
     100% { transform: translateY(0) scale(1, 1); }
   }
 }
+
+/* 3D "pushable" button (PushButton): a blurred shadow, a darker edge and the face on top.
+   The face lifts on hover and sinks on press; the shadow moves the opposite way. */
+.pushable {
+  --push-face: var(--color-emerald-600);
+  --push-edge-dark: oklch(0.36 0.09 163);
+  --push-edge-light: oklch(0.45 0.11 163);
+  --push-shadow: oklch(0.8 0.05 163);
+  position: relative;
+  display: inline-block;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  outline-offset: 4px;
+  outline-color: var(--color-emerald-600);
+  transition: filter 250ms;
+  -webkit-tap-highlight-color: transparent;
+}
+html.dark .pushable {
+  --push-shadow: oklch(0 0 0 / 0.6);
+}
+.pushable-shadow,
+.pushable-edge {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+}
+.pushable-shadow {
+  background: var(--push-shadow);
+  filter: blur(2px);
+  will-change: transform;
+  transform: translateY(2px);
+  transition: transform 600ms cubic-bezier(0.3, 0.7, 0.4, 1);
+}
+.pushable-edge {
+  background: linear-gradient(
+    to right,
+    var(--push-edge-dark) 0%,
+    var(--push-edge-light) 8%,
+    var(--push-edge-dark) 92%,
+    oklch(0.3 0.08 163) 100%
+  );
+}
+.pushable-front {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 8px;
+  background: var(--push-face);
+  padding: 0.625rem 1.25rem;
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transform: translateY(-4px);
+  transition: transform 600ms cubic-bezier(0.3, 0.7, 0.4, 1);
+}
+.pushable:not(:disabled):hover {
+  filter: brightness(110%);
+}
+.pushable:not(:disabled):hover .pushable-front {
+  transform: translateY(-6px);
+  transition: transform 250ms cubic-bezier(0.3, 0.7, 0.4, 1.5);
+}
+.pushable:not(:disabled):active .pushable-front {
+  transform: translateY(-2px);
+  transition: transform 34ms;
+}
+.pushable:not(:disabled):hover .pushable-shadow {
+  transform: translateY(4px);
+  transition: transform 250ms cubic-bezier(0.3, 0.7, 0.4, 1.5);
+}
+.pushable:not(:disabled):active .pushable-shadow {
+  transform: translateY(1px);
+  transition: transform 34ms;
+}
+.pushable:focus:not(:focus-visible) {
+  outline: none;
+}
+.pushable:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pushable-front,
+  .pushable-shadow {
+    transition: none !important;
+  }
+}
