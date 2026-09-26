@@ -1,4 +1,4 @@
-package com.viris.PulseGuard.incident;
+package com.viris.PulseGuard.incident.dto;
 
 import com.viris.PulseGuard.enumeration.IncidentAction;
 import com.viris.PulseGuard.enumeration.MonitorState;

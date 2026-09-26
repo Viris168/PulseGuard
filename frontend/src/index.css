@@ -1,0 +1,174 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-zinc-50 text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100;
+}
+
+/* Chart tokens. --series-1 is validated (dataviz palette check) against the card surfaces below. */
+:root {
+  --chart-surface: #ffffff;
+  --chart-grid: #e4e4e7;
+  --chart-axis: #71717a;
+  --series-1: #2a78d6;
+  --status-down: #ef4444;
+}
+
+html.dark {
+  --chart-surface: #18181b;
+  --chart-grid: #27272a;
+  --chart-axis: #a1a1aa;
+  --series-1: #3987e5;
+  --status-down: #f87171;
+}
+
+/* Ask AI mascot. Every use is wrapped in motion-safe: so reduced-motion users get a still image. */
+@theme {
+  --animate-pg-float: pg-float 3.2s ease-in-out infinite;
+  --animate-pg-float-slow: pg-float 3.8s ease-in-out infinite;
+  --animate-pg-shadow: pg-shadow 3.2s ease-in-out infinite;
+  --animate-pg-blink: pg-blink 4.5s ease-in-out infinite;
+  --animate-pg-beat: pg-beat 2.4s ease-in-out infinite;
+  --animate-pg-beat-fast: pg-beat 0.9s ease-in-out infinite;
+  --animate-pg-look: pg-look 1.6s ease-in-out infinite;
+  --animate-pg-hop: pg-hop 0.6s ease-out;
+
+  @keyframes pg-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-7px); }
+  }
+  /* The ground shadow shrinks as the orbs rise. */
+  @keyframes pg-shadow {
+    0%, 100% { transform: scaleX(1); opacity: 0.55; }
+    50% { transform: scaleX(0.8); opacity: 0.3; }
+  }
+  @keyframes pg-blink {
+    0%, 90%, 100% { transform: scaleY(1); }
+    94% { transform: scaleY(0.1); }
+  }
+  /* The trace draws itself left to right, holds, then fades for the next beat. */
+  @keyframes pg-beat {
+    0% { stroke-dashoffset: 36; opacity: 1; }
+    45% { stroke-dashoffset: 0; opacity: 1; }
+    80% { stroke-dashoffset: 0; opacity: 1; }
+    100% { stroke-dashoffset: 0; opacity: 0.25; }
+  }
+  @keyframes pg-look {
+    0%, 100% { transform: translateX(0); }
+    30% { transform: translateX(-2.5px); }
+    70% { transform: translateX(2.5px); }
+  }
+  @keyframes pg-hop {
+    0% { transform: translateY(0) scale(1, 1); }
+    25% { transform: translateY(0) scale(1.08, 0.9); }
+    55% { transform: translateY(-14px) scale(0.95, 1.06); }
+    80% { transform: translateY(0) scale(1.04, 0.96); }
+    100% { transform: translateY(0) scale(1, 1); }
+  }
+}
+
+/* 3D "pushable" button (PushButton): a blurred shadow, a darker edge and the face on top.
+   The face lifts on hover and sinks on press; the shadow moves the opposite way. */
+.pushable {
+  --push-face: var(--color-emerald-600);
+  --push-edge-dark: oklch(0.36 0.09 163);
+  --push-edge-light: oklch(0.45 0.11 163);
+  --push-shadow: oklch(0.8 0.05 163);
+  position: relative;
+  display: inline-block;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  outline-offset: 4px;
+  outline-color: var(--color-emerald-600);
+  transition: filter 250ms;
+  -webkit-tap-highlight-color: transparent;
+}
+html.dark .pushable {
+  --push-shadow: oklch(0 0 0 / 0.6);
+}
+.pushable-shadow,
+.pushable-edge {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+}
+.pushable-shadow {
+  background: var(--push-shadow);
+  filter: blur(2px);
+  will-change: transform;
+  transform: translateY(2px);
+  transition: transform 600ms cubic-bezier(0.3, 0.7, 0.4, 1);
+}
+.pushable-edge {
+  background: linear-gradient(
+    to right,
+    var(--push-edge-dark) 0%,
+    var(--push-edge-light) 8%,
+    var(--push-edge-dark) 92%,
+    oklch(0.3 0.08 163) 100%
+  );
+}
+.pushable-front {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 8px;
+  background: var(--push-face);
+  padding: 0.625rem 1.25rem;
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transform: translateY(-4px);
+  transition: transform 600ms cubic-bezier(0.3, 0.7, 0.4, 1);
+}
+.pushable:not(:disabled):hover {
+  filter: brightness(110%);
+}
+.pushable:not(:disabled):hover .pushable-front {
+  transform: translateY(-6px);
+  transition: transform 250ms cubic-bezier(0.3, 0.7, 0.4, 1.5);
+}
+.pushable:not(:disabled):active .pushable-front {
+  transform: translateY(-2px);
+  transition: transform 34ms;
+}
+.pushable:not(:disabled):hover .pushable-shadow {
+  transform: translateY(4px);
+  transition: transform 250ms cubic-bezier(0.3, 0.7, 0.4, 1.5);
+}
+.pushable:not(:disabled):active .pushable-shadow {
+  transform: translateY(1px);
+  transition: transform 34ms;
+}
+.pushable:focus:not(:focus-visible) {
+  outline: none;
+}
+.pushable:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pushable-front,
+  .pushable-shadow {
+    transition: none !important;
+  }
+}

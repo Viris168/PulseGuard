@@ -2,12 +2,14 @@ package com.viris.PulseGuard.scheduling;
 
 import com.viris.PulseGuard.check.Check;
 import com.viris.PulseGuard.check.CheckExecutor;
+import com.viris.PulseGuard.incident.IncidentEngine;
 import com.viris.PulseGuard.monitor.Monitor;
 import com.viris.PulseGuard.monitor.MonitorRepository;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
@@ -29,15 +31,18 @@ public class MonitorCheckService {
     private final CheckExecutor checkExecutor;
     private final SchedulerService schedulerService;
     private final MeterRegistry meterRegistry;
+    private final IncidentEngine incidentEngine;
 
     public MonitorCheckService(MonitorRepository monitorRepository,
                                CheckExecutor checkExecutor,
                                SchedulerService schedulerService,
-                               MeterRegistry meterRegistry) {
+                               MeterRegistry meterRegistry,
+                               IncidentEngine incidentEngine) {
         this.monitorRepository = monitorRepository;
         this.checkExecutor = checkExecutor;
         this.schedulerService = schedulerService;
         this.meterRegistry = meterRegistry;
+        this.incidentEngine = incidentEngine;
     }
 
     public void runCheck(Long monitorId) {
@@ -65,6 +70,24 @@ public class MonitorCheckService {
                 .register(meterRegistry)
                 .increment();
         monitorRepository.touchLastCheckedAt(monitorId, check.getCheckedAt());
-        // Step 4: hand the result to IncidentEngine here.
+        // Its own transaction: state, counters and any incident change commit together.
+        evaluateWithRetry(monitorId, check);
+    }
+
+    private static final int MAX_EVALUATE_ATTEMPTS = 3;
+
+    private void evaluateWithRetry(Long monitorId, Check check) {
+        for (int attempt = 1; ; attempt++) {
+            try {
+                incidentEngine.evaluate(monitorId, check);
+                return;
+            } catch (OptimisticLockingFailureException e) {
+                if (attempt >= MAX_EVALUATE_ATTEMPTS) {
+                    throw e;   // CheckJob logs it; the next scheduled check carries on
+                }
+                log.info("Concurrent update on monitorId={}, retrying evaluation (attempt {})",
+                        monitorId, attempt + 1);
+            }
+        }
     }
 }
