@@ -3,6 +3,7 @@ package com.viris.PulseGuard.notification;
 import com.viris.PulseGuard.common.AbstractRepositoryTest;
 import com.viris.PulseGuard.enumeration.ChannelType;
 import com.viris.PulseGuard.auth.User;
+import com.viris.PulseGuard.notification.repository.NotificationChannelRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 

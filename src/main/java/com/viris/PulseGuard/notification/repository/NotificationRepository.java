@@ -1,6 +1,7 @@
-package com.viris.PulseGuard.notification;
+package com.viris.PulseGuard.notification.repository;
 
 import com.viris.PulseGuard.enumeration.NotificationEventType;
+import com.viris.PulseGuard.notification.Notification;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;

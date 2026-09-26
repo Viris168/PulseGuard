@@ -13,6 +13,9 @@ import com.viris.PulseGuard.common.exception.EmailAlreadyUsedException;
 import com.viris.PulseGuard.common.exception.InvalidCredentialsException;
 import com.viris.PulseGuard.common.exception.PasswordUnchangedException;
 import com.viris.PulseGuard.common.exception.TooManyAttemptsException;
+import com.viris.PulseGuard.enumeration.ChannelType;
+import com.viris.PulseGuard.notification.NotificationChannel;
+import com.viris.PulseGuard.notification.repository.NotificationChannelRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -44,6 +47,8 @@ class AuthServiceTest {
 
     @Mock
     UserRepository users;
+    @Mock
+    NotificationChannelRepository channels;
 
     PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     JwtService jwtService;
@@ -64,7 +69,7 @@ class AuthServiceTest {
         provider.setPasswordEncoder(passwordEncoder);
 
         authService = new AuthService(users, passwordEncoder, new ProviderManager(provider),
-                jwtService, denylist, new InMemoryLoginRateLimiter(5, 20));
+                jwtService, denylist, new InMemoryLoginRateLimiter(5, 20), channels);
     }
 
     private User storedUser() {
@@ -91,12 +96,27 @@ class AuthServiceTest {
     }
 
     @Test
+    void registerCreatesDefaultEmailChannelForTheAccountEmail() {
+        when(users.existsByEmail("a@example.com")).thenReturn(false);
+        when(users.save(any(User.class))).thenAnswer(i -> i.getArgument(0));
+
+        authService.register(new RegisterRequest("Viris", "A@Example.com", "secret123"));
+
+        ArgumentCaptor<NotificationChannel> channel = ArgumentCaptor.forClass(NotificationChannel.class);
+        verify(channels).save(channel.capture());
+        assertThat(channel.getValue().getType()).isEqualTo(ChannelType.EMAIL);
+        assertThat(channel.getValue().getTarget()).isEqualTo("a@example.com");
+        assertThat(channel.getValue().isEnabled()).isTrue();
+    }
+
+    @Test
     void registerChecksExistingEmailInNormalizedForm() {
         when(users.existsByEmail("a@example.com")).thenReturn(true);
 
         assertThatThrownBy(() -> authService.register(new RegisterRequest("Viris", "A@Example.com", "secret123")))
                 .isInstanceOf(EmailAlreadyUsedException.class);
         verify(users, never()).save(any());
+        verify(channels, never()).save(any());
     }
 
     @Test
