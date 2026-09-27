@@ -49,6 +49,16 @@ public class AlertMessageFactory {
         return new AlertMessage("✅ RECOVERED: " + monitor.getName(), body);
     }
 
+    /** What "Send test" delivers: says plainly that nothing is wrong. */
+    public AlertMessage test() {
+        String body = """
+                This is a test alert from PulseGuard. Nothing is down.
+
+                If you can read this, alerts for your monitors will reach you here.
+                """;
+        return new AlertMessage("🔔 Test alert from PulseGuard", body);
+    }
+
     private static String format(Instant instant) {
         return TIME.format(instant);
     }

@@ -4,12 +4,17 @@ import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
+import org.springframework.validation.method.ParameterValidationResult;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -45,6 +50,51 @@ public class GlobalExceptionHandler {
                 .body(ApiError.of(HttpStatus.NOT_FOUND.value(), ex.getMessage()));
     }
 
+    @ExceptionHandler(IncidentNotFoundException.class)
+    public ResponseEntity<ApiError> handleIncidentNotFound(IncidentNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiError.of(HttpStatus.NOT_FOUND.value(), ex.getMessage()));
+    }
+
+    @ExceptionHandler(ChannelNotFoundException.class)
+    public ResponseEntity<ApiError> handleChannelNotFound(ChannelNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiError.of(HttpStatus.NOT_FOUND.value(), ex.getMessage()));
+    }
+
+    /** Same shape as body validation, so the form can show it under the target field. */
+    @ExceptionHandler(InvalidChannelTargetException.class)
+    public ResponseEntity<ApiError> handleInvalidChannelTarget(InvalidChannelTargetException ex) {
+        return ResponseEntity.badRequest()
+                .body(ApiError.of(HttpStatus.BAD_REQUEST.value(), "Validation failed",
+                        Map.of("target", ex.getMessage())));
+    }
+
+    @ExceptionHandler(ChannelRuleException.class)
+    public ResponseEntity<ApiError> handleChannelRule(ChannelRuleException ex) {
+        return ResponseEntity.status(ex.getStatus())
+                .body(ApiError.of(ex.getStatus().value(), ex.getMessage()));
+    }
+
+    @ExceptionHandler(StatusPageNotFoundException.class)
+    public ResponseEntity<ApiError> handleStatusPageNotFound(StatusPageNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiError.of(HttpStatus.NOT_FOUND.value(), ex.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidStatusPageException.class)
+    public ResponseEntity<ApiError> handleInvalidStatusPage(InvalidStatusPageException ex) {
+        return ResponseEntity.badRequest()
+                .body(ApiError.of(HttpStatus.BAD_REQUEST.value(), ex.getMessage(), ex.getFieldErrors()));
+    }
+
+    @ExceptionHandler(SlugTakenException.class)
+    public ResponseEntity<ApiError> handleSlugTaken(SlugTakenException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiError.of(HttpStatus.CONFLICT.value(), ex.getMessage(),
+                        Map.of("slug", "That address is already taken")));
+    }
+
     @ExceptionHandler(InvalidMonitorUrlException.class)
     public ResponseEntity<ApiError> handleInvalidMonitorUrl(InvalidMonitorUrlException ex) {
         return ResponseEntity.badRequest()
@@ -62,6 +112,40 @@ public class GlobalExceptionHandler {
         Map<String, String> fieldErrors = new HashMap<>();
         for (FieldError error : ex.getBindingResult().getFieldErrors()) {
             fieldErrors.putIfAbsent(error.getField(), error.getDefaultMessage());
+        }
+        return ResponseEntity.badRequest()
+                .body(ApiError.of(HttpStatus.BAD_REQUEST.value(), "Validation failed", fieldErrors));
+    }
+
+    /**
+     * A parameter that cannot be converted at all, e.g. {@code ?status=BOGUS} or
+     * {@code ?limit=abc}. The rejected value is not echoed back; for enums the allowed values
+     * are listed instead, which is what a client needs to fix the request.
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiError> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        Class<?> type = ex.getRequiredType();
+        String reason = type != null && type.isEnum()
+                ? "must be one of " + Arrays.stream(type.getEnumConstants()).map(Object::toString)
+                        .collect(Collectors.joining(", "))
+                : "has an invalid format";
+        return ResponseEntity.badRequest()
+                .body(ApiError.of(HttpStatus.BAD_REQUEST.value(), "Validation failed",
+                        Map.of(ex.getName(), reason)));
+    }
+
+    /**
+     * Constraints on {@code @RequestParam}/{@code @PathVariable} (e.g. {@code @Max(100) limit}).
+     * Spring's default answer is a 400 with an empty body; this keeps the same JSON shape as
+     * body validation, keyed by parameter name.
+     */
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<ApiError> handleParameterValidation(HandlerMethodValidationException ex) {
+        Map<String, String> fieldErrors = new HashMap<>();
+        for (ParameterValidationResult result : ex.getParameterValidationResults()) {
+            String name = result.getMethodParameter().getParameterName();
+            result.getResolvableErrors().stream().findFirst()
+                    .ifPresent(error -> fieldErrors.putIfAbsent(name, error.getDefaultMessage()));
         }
         return ResponseEntity.badRequest()
                 .body(ApiError.of(HttpStatus.BAD_REQUEST.value(), "Validation failed", fieldErrors));

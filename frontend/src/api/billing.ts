@@ -11,14 +11,16 @@ import type { BillingSummary, RedirectResponse } from '../types/billing'
 import { PLAN_ORDER } from '../lib/plans'
 import { mockAccount, mockUpdateAccount } from './auth'
 import { ApiError } from './errors'
-import { delay, ownMonitors } from './mockDb'
+import { delay } from './mockDb'
+import { listMonitors } from './monitors'
 import { requireUserId, updateSessionUser } from './session'
 
 const BILLING_PERIOD_MS = 30 * 86_400_000
 
 /** GET /api/billing/subscription */
 export async function getBillingSummary(): Promise<BillingSummary> {
-  await delay(250)
+  // Subscription data is still simulated; the monitor count is real.
+  const monitors = await listMonitors()
   const account = mockAccount(requireUserId())
   const sub = account.subscription
   return {
@@ -26,7 +28,7 @@ export async function getBillingSummary(): Promise<BillingSummary> {
     status: account.plan === 'FREE' ? null : (sub?.status ?? 'active'),
     currentPeriodEnd: sub?.currentPeriodEnd ?? null,
     cancelAtPeriodEnd: sub?.cancelAtPeriodEnd ?? false,
-    usage: { monitors: ownMonitors().length },
+    usage: { monitors: monitors.length },
   }
 }
 

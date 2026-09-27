@@ -54,6 +54,8 @@ public class SecurityConfig {
                                 "/api/auth/register", "/api/auth/login", "/api/auth/refresh").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/stripe/webhook").permitAll()
                         .requestMatchers("/status/**").permitAll()
+                        // Public status page data; the SPA owns /status/{slug} itself.
+                        .requestMatchers(HttpMethod.GET, "/api/status/*").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
                         // After health: first match wins, so health stays public.
                         .requestMatchers("/actuator/**").hasRole("ADMIN")

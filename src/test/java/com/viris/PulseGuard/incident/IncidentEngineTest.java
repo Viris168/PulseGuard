@@ -1,6 +1,7 @@
 package com.viris.PulseGuard.incident;
 
 import com.viris.PulseGuard.check.Check;
+import com.viris.PulseGuard.check.CheckRepository;
 import com.viris.PulseGuard.enumeration.CheckResult;
 import com.viris.PulseGuard.enumeration.ErrorType;
 import com.viris.PulseGuard.enumeration.IncidentStatus;
@@ -17,8 +18,10 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.PageRequest;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -41,6 +44,8 @@ class IncidentEngineTest {
     private IncidentRepository incidentRepository;
     @Mock
     private ApplicationEventPublisher events;
+    @Mock
+    private CheckRepository checkRepository;
 
     private IncidentEngine engine;
     private Monitor monitor;
@@ -49,7 +54,7 @@ class IncidentEngineTest {
     void setUp() {
         // The real state machine: it is pure and fully tested on its own, so no reason to fake it.
         engine = new IncidentEngine(monitorRepository, incidentRepository,
-                new MonitorStateMachine(new IncidentProperties(3, 2)), events);
+                new MonitorStateMachine(new IncidentProperties(3, 2)), events, checkRepository);
         monitor = new Monitor();
         monitor.setId(MONITOR_ID);
     }
@@ -106,6 +111,48 @@ class IncidentEngineTest {
         assertThat(saved.getValue().getCause()).isEqualTo("TIMEOUT: No response");
         assertThat(saved.getValue().getStartedAt()).isEqualTo(CHECKED_AT);
         verify(events).publishEvent(any(IncidentOpenedEvent.class));
+    }
+
+    @Test
+    void startedAtIsTheFirstFailureOfTheStreakNotTheThresholdCheck() {
+        monitorIs(MonitorState.SUSPICIOUS, 2, 0);
+        when(incidentRepository.findByMonitorIdAndStatus(MONITOR_ID, IncidentStatus.OPEN))
+                .thenReturn(Optional.empty());
+        Check third = check(CheckResult.DOWN);                        // CHECKED_AT, the one that confirms
+        Check second = checkAt(CheckResult.DOWN, CHECKED_AT.minusSeconds(60));
+        Check first = checkAt(CheckResult.DOWN, CHECKED_AT.minusSeconds(120));
+        when(checkRepository.findByMonitorIdOrderByCheckedAtDesc(MONITOR_ID, PageRequest.of(0, 3)))
+                .thenReturn(List.of(third, second, first));
+
+        engine.evaluate(MONITOR_ID, third);
+
+        ArgumentCaptor<Incident> saved = ArgumentCaptor.forClass(Incident.class);
+        verify(incidentRepository).save(saved.capture());
+        assertThat(saved.getValue().getStartedAt()).isEqualTo(CHECKED_AT.minusSeconds(120));
+    }
+
+    @Test
+    void startedAtNeverReachesBackPastAPassingCheck() {
+        monitorIs(MonitorState.SUSPICIOUS, 2, 0);
+        when(incidentRepository.findByMonitorIdAndStatus(MONITOR_ID, IncidentStatus.OPEN))
+                .thenReturn(Optional.empty());
+        Check current = check(CheckResult.DOWN);
+        // Defensive: if an UP row ever sits inside the window, the streak stops there.
+        when(checkRepository.findByMonitorIdOrderByCheckedAtDesc(MONITOR_ID, PageRequest.of(0, 3)))
+                .thenReturn(List.of(current, checkAt(CheckResult.UP, CHECKED_AT.minusSeconds(60)),
+                        checkAt(CheckResult.DOWN, CHECKED_AT.minusSeconds(120))));
+
+        engine.evaluate(MONITOR_ID, current);
+
+        ArgumentCaptor<Incident> saved = ArgumentCaptor.forClass(Incident.class);
+        verify(incidentRepository).save(saved.capture());
+        assertThat(saved.getValue().getStartedAt()).isEqualTo(CHECKED_AT);
+    }
+
+    private static Check checkAt(CheckResult result, Instant at) {
+        Check check = check(result);
+        check.setCheckedAt(at);
+        return check;
     }
 
     @Test

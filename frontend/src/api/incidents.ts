@@ -1,42 +1,20 @@
 /**
- * Incident API — MOCK implementation. See monitors.ts for how to go live.
+ * Incident API — live against IncidentController.
  */
 import type { Incident, IncidentDetail, IncidentStatus } from '../types/incident'
-import { ApiError } from './errors'
-import { delay, findMonitor, ownIncidents, ownMonitors } from './mockDb'
-import { buildTimeline } from './mockHistory'
+import { api, queryString } from './http'
 
 interface IncidentFilter {
   status?: IncidentStatus
-  /** Not in architecture.md yet — the backend needs `?monitorId=` for the monitor detail page. */
   monitorId?: number
 }
 
-/** GET /api/incidents?status=&monitorId=  (newest first) */
+/** GET /api/incidents?status=&monitorId=  (newest first, scoped to the caller on the server) */
 export async function listIncidents(filter: IncidentFilter = {}): Promise<Incident[]> {
-  await delay()
-  const names = new Map(ownMonitors().map((m) => [m.id, m.name]))
-  return ownIncidents()
-    .filter((i) => (filter.status ? i.status === filter.status : true))
-    .filter((i) => (filter.monitorId !== undefined ? i.monitorId === filter.monitorId : true))
-    .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))
-    .map((i) => ({ ...i, monitorName: names.get(i.monitorId) ?? 'Deleted monitor' }))
+  return api<Incident[]>(`/api/incidents${queryString({ status: filter.status, monitorId: filter.monitorId })}`)
 }
 
-/** GET /api/incidents/{id} */
+/** GET /api/incidents/{id} — the incident plus its timeline; another account's incident is a 404. */
 export async function getIncident(id: number): Promise<IncidentDetail> {
-  await delay()
-  const incident = ownIncidents().find((i) => i.id === id)
-  // Scoped by user on the backend: someone else's incident is a 404 too.
-  if (!incident) throw new ApiError(404, 'Incident not found')
-  const m = findMonitor(incident.monitorId)
-  return {
-    ...structuredClone(incident),
-    monitorName: m.name,
-    monitorType: m.type,
-    monitorUrl: m.url,
-    monitorMethod: m.method,
-    intervalSeconds: m.intervalSeconds,
-    timeline: buildTimeline(m, incident),
-  }
+  return api<IncidentDetail>(`/api/incidents/${id}`)
 }

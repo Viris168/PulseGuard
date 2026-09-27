@@ -2,6 +2,7 @@ package com.viris.PulseGuard.monitor;
 
 import com.viris.PulseGuard.auth.User;
 import com.viris.PulseGuard.auth.UserRepository;
+import com.viris.PulseGuard.check.CheckRepository;
 import com.viris.PulseGuard.billing.PlanLimits;
 import com.viris.PulseGuard.common.exception.InvalidMonitorUrlException;
 import com.viris.PulseGuard.common.exception.MonitorNotFoundException;
@@ -45,6 +46,8 @@ class MonitorServiceTest {
     private SafeUrlValidator urlValidator;
     @Mock
     private SchedulerService schedulerService;
+    @Mock
+    private CheckRepository checkRepository;
 
     private MonitorService service;
     private User owner;
@@ -53,7 +56,7 @@ class MonitorServiceTest {
     void setUp() {
         // PlanLimits is a pure lookup — exercise the real limits, not a stub.
         service = new MonitorService(monitorRepository, userRepository, new PlanLimits(), urlValidator,
-                schedulerService);
+                schedulerService, checkRepository);
         owner = new User();
         owner.setEmail("owner@example.com");
         owner.setPlan(Plan.PRO);
@@ -353,5 +356,17 @@ class MonitorServiceTest {
         verify(monitorRepository, never()).delete(any());
         // One tenant must never be able to stop another tenant's checks.
         verify(schedulerService, never()).unschedule(any());
+    }
+
+    // --- check history -------------------------------------------------
+
+    @Test
+    void recentChecksScopesToOwner() {
+        when(monitorRepository.findByIdAndUserId(MONITOR_ID, OWNER_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.recentChecks(OWNER_ID, MONITOR_ID, 20))
+                .isInstanceOf(MonitorNotFoundException.class);
+        // The unscoped checks query must never run for someone else's monitor (IDOR).
+        verify(checkRepository, never()).findByMonitorIdOrderByCheckedAtDesc(any(), any());
     }
 }

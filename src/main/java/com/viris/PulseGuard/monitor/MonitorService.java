@@ -3,19 +3,31 @@ package com.viris.PulseGuard.monitor;
 import com.viris.PulseGuard.auth.User;
 import com.viris.PulseGuard.auth.UserRepository;
 import com.viris.PulseGuard.billing.PlanLimits;
+import com.viris.PulseGuard.check.CheckRepository;
+import com.viris.PulseGuard.check.dto.CheckResponse;
+import com.viris.PulseGuard.check.dto.RecentCheckRow;
+import com.viris.PulseGuard.check.dto.UptimeRow;
 import com.viris.PulseGuard.common.exception.MonitorNotFoundException;
 import com.viris.PulseGuard.common.exception.PlanLimitExceededException;
 import com.viris.PulseGuard.common.net.SafeUrlValidator;
 import com.viris.PulseGuard.enumeration.Plan;
 import com.viris.PulseGuard.monitor.dto.MonitorRequest;
 import com.viris.PulseGuard.monitor.dto.MonitorResponse;
+import com.viris.PulseGuard.monitor.dto.MonitorSummaryResponse;
 import com.viris.PulseGuard.scheduling.SchedulerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 public class MonitorService {
@@ -27,17 +39,23 @@ public class MonitorService {
     private final PlanLimits planLimits;
     private final SafeUrlValidator urlValidator;
     private final SchedulerService schedulerService;
+    private final CheckRepository checkRepository;
+
+    /** Length of the mini status bar on the monitors page. */
+    static final int RECENT_CHECKS = 30;
 
     public MonitorService(MonitorRepository monitorRepository,
                           UserRepository userRepository,
                           PlanLimits planLimits,
                           SafeUrlValidator urlValidator,
-                          SchedulerService schedulerService) {
+                          SchedulerService schedulerService,
+                          CheckRepository checkRepository) {
         this.monitorRepository = monitorRepository;
         this.userRepository = userRepository;
         this.planLimits = planLimits;
         this.urlValidator = urlValidator;
         this.schedulerService = schedulerService;
+        this.checkRepository = checkRepository;
     }
 
     @Transactional
@@ -69,9 +87,56 @@ public class MonitorService {
     }
 
     @Transactional(readOnly = true)
-    public List<MonitorResponse> listMonitors(Long userId) {
-        return monitorRepository.findAllByUserId(userId).stream()
-                .map(MonitorResponse::from)
+    public List<MonitorSummaryResponse> listMonitors(Long userId) {
+        List<Monitor> monitors = monitorRepository.findAllByUserId(userId);
+        if (monitors.isEmpty()) {
+            return List.of();
+        }
+        // Three queries in total, however many monitors: the list, one grouped uptime query,
+        // one LATERAL query for every monitor's recent checks. Never one query per monitor.
+        Map<Long, UptimeRow> uptime = checkRepository.uptimeSince(userId, Instant.now().minus(Duration.ofHours(24)))
+                .stream().collect(Collectors.toMap(UptimeRow::monitorId, Function.identity()));
+        Map<Long, List<RecentCheckRow>> recent = checkRepository.recentChecksPerMonitor(userId, RECENT_CHECKS)
+                .stream().collect(Collectors.groupingBy(RecentCheckRow::getMonitorId));
+
+        return monitors.stream().map(monitor -> {
+            List<RecentCheckRow> rows = recent.getOrDefault(monitor.getId(), List.of());
+            RecentCheckRow last = rows.isEmpty() ? null : rows.getLast();
+            // Paused: yesterday's figure would read as current, so show none.
+            Double uptime24h = monitor.isActive() && uptime.containsKey(monitor.getId())
+                    ? uptime.get(monitor.getId()).uptimePct()
+                    : null;
+            return MonitorSummaryResponse.from(monitor, uptime24h,
+                    last == null ? null : last.getResponseTimeMs(),
+                    last == null ? null : last.getStatusCode(),
+                    rows.stream().map(row -> "UP".equals(row.getResult())).toList());
+        }).toList();
+    }
+
+    /**
+     * Check history, optionally within [from, to], newest or oldest first. The ownership check
+     * comes first: the checks query itself is keyed by monitor id alone, so without it any id
+     * could be read (IDOR). Served by the {@code checks (monitor_id, checked_at)} index.
+     */
+    @Transactional(readOnly = true)
+    public List<CheckResponse> recentChecks(Long userId, Long monitorId, int limit) {
+        return checkHistory(userId, monitorId, null, null, limit, Sort.Direction.DESC);
+    }
+
+    @Transactional(readOnly = true)
+    public List<CheckResponse> checkHistory(Long userId, Long monitorId, Instant from, Instant to,
+                                            int limit, Sort.Direction direction) {
+        requireOwnedMonitor(userId, monitorId);
+        if (from == null && to == null && direction == Sort.Direction.DESC) {
+            // The common case, "latest N": no range condition, straight down the index.
+            return checkRepository.findByMonitorIdOrderByCheckedAtDesc(monitorId, PageRequest.of(0, limit)).stream()
+                    .map(CheckResponse::from)
+                    .toList();
+        }
+        return checkRepository.findByMonitorIdAndCheckedAtBetween(monitorId,
+                        from != null ? from : Instant.EPOCH, to != null ? to : Instant.now(),
+                        PageRequest.of(0, limit, Sort.by(direction, "checkedAt"))).stream()
+                .map(CheckResponse::from)
                 .toList();
     }
 

@@ -22,6 +22,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -192,6 +193,55 @@ class AuthFlowIntegrationTest {
                 .andExpect(jsonPath("$.role").value("ADMIN"));
 
         assertThat(users.findById(userId).orElseThrow().getRole()).isEqualTo(Role.ADMIN);
+    }
+
+    @Test
+    void renamingTheAccountPersistsTheTrimmedName() throws Exception {
+        mockMvc.perform(patch("/api/auth/me")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"  Viris Sok  "}"""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Viris Sok"))
+                .andExpect(jsonPath("$.email").value("a@example.com"));
+
+        // Same token, no reissue: /me reads the row, not the token.
+        mockMvc.perform(get("/api/auth/me").header("Authorization", "Bearer " + accessToken))
+                .andExpect(jsonPath("$.name").value("Viris Sok"));
+        assertThat(users.findById(userId).orElseThrow().getName()).isEqualTo("Viris Sok");
+    }
+
+    @Test
+    void renamingRejectsABlankName() throws Exception {
+        mockMvc.perform(patch("/api/auth/me")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"   "}"""))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors.name").value("Name is required"));
+
+        assertThat(users.findById(userId).orElseThrow().getName()).isEqualTo("Viris");
+    }
+
+    @Test
+    void renamingRejectsANameOver100Characters() throws Exception {
+        mockMvc.perform(patch("/api/auth/me")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"" + "x".repeat(101) + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors.name").value("Name must be 100 characters or fewer"));
+    }
+
+    @Test
+    void renamingNeedsAuthentication() throws Exception {
+        mockMvc.perform(patch("/api/auth/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"Someone"}"""))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test

@@ -43,14 +43,13 @@ export interface IncidentDetail extends Incident {
   timeline: IncidentEvent[]
 }
 
-// Row of `notification_channels` — GET/POST/DELETE /api/channels
+// Row of `notification_channels` — GET/POST /api/channels, PATCH/DELETE /api/channels/{id}
 export interface NotificationChannel {
   id: number
   type: ChannelType
-  /** Email address, Slack webhook URL, phone number… depending on type. */
+  /** Email address as-is; webhook URLs and phone numbers arrive masked by the server. */
   target: string
   enabled: boolean
-  createdAt: string
 }
 
 export interface ChannelRequest {

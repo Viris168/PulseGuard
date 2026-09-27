@@ -1,6 +1,8 @@
 package com.viris.PulseGuard.incident;
 
 import com.viris.PulseGuard.check.Check;
+import com.viris.PulseGuard.check.CheckRepository;
+import com.viris.PulseGuard.enumeration.CheckResult;
 import com.viris.PulseGuard.enumeration.IncidentStatus;
 import com.viris.PulseGuard.incident.dto.IncidentOpenedEvent;
 import com.viris.PulseGuard.incident.dto.IncidentResolvedEvent;
@@ -10,8 +12,12 @@ import com.viris.PulseGuard.monitor.MonitorRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+import java.util.List;
 
 /**
  * Applies one check result to its monitor, in one transaction: the new state and counters,
@@ -30,15 +36,18 @@ public class IncidentEngine {
     private final IncidentRepository incidentRepository;
     private final MonitorStateMachine stateMachine;
     private final ApplicationEventPublisher events;
+    private final CheckRepository checkRepository;
 
     public IncidentEngine(MonitorRepository monitorRepository,
                           IncidentRepository incidentRepository,
                           MonitorStateMachine stateMachine,
-                          ApplicationEventPublisher events) {
+                          ApplicationEventPublisher events,
+                          CheckRepository checkRepository) {
         this.monitorRepository = monitorRepository;
         this.incidentRepository = incidentRepository;
         this.stateMachine = stateMachine;
         this.events = events;
+        this.checkRepository = checkRepository;
     }
 
     @Transactional
@@ -59,12 +68,12 @@ public class IncidentEngine {
 
         switch (transition.action()) {
             case NONE -> { }   // most checks: state and counters changed, nothing to do about incidents
-            case OPEN -> open(monitor, check);
+            case OPEN -> open(monitor, check, transition.consecutiveFailures());
             case RESOLVE -> resolve(monitorId, check);
         }
     }
 
-    private void open(Monitor monitor, Check check) {
+    private void open(Monitor monitor, Check check, int failuresInStreak) {
         Long monitorId = monitor.getId();
         // Idempotent: the partial unique index would reject a second open incident and roll
         // back the whole transaction, state change included.
@@ -76,7 +85,7 @@ public class IncidentEngine {
         Incident incident = new Incident();
         incident.setMonitor(monitor);
         incident.setCause(describe(check));
-        incident.setStartedAt(check.getCheckedAt());
+        incident.setStartedAt(firstFailureAt(monitorId, failuresInStreak, check));
         incidentRepository.save(incident);
 
         events.publishEvent(new IncidentOpenedEvent(incident.getId(), monitorId));
@@ -94,8 +103,29 @@ public class IncidentEngine {
                 }, () -> log.warn("No open incident to resolve for monitorId={}", monitorId));
     }
 
-    /** e.g. "TIMEOUT: No response". */
-    private String describe(Check check) {
+    /**
+     * The outage began at the first failure of the streak, not at the check that confirmed it:
+     * the threshold only proves the outage, it does not move its start. The current check is
+     * already saved, so the streak is the latest {@code failuresInStreak} rows; walking back
+     * only over DOWN rows keeps a stray UP row from ever being taken as the start.
+     */
+    private Instant firstFailureAt(Long monitorId, int failuresInStreak, Check current) {
+        List<Check> latest = checkRepository.findByMonitorIdOrderByCheckedAtDesc(
+                monitorId, PageRequest.of(0, failuresInStreak));
+        Instant start = current.getCheckedAt();
+        for (Check check : latest) {
+            if (check.getResult() != CheckResult.DOWN) {
+                break;
+            }
+            if (check.getCheckedAt().isBefore(start)) {
+                start = check.getCheckedAt();
+            }
+        }
+        return start;
+    }
+
+    /** e.g. "TIMEOUT: No response". Shared with the incident timeline. */
+    static String describe(Check check) {
         if (check.getErrorType() == null) {
             return "Check failed";
         }

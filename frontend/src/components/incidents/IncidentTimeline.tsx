@@ -50,11 +50,17 @@ interface Row {
   pending?: boolean
 }
 
-function describe(e: IncidentEvent, incident: IncidentDetail): Row {
+function describe(e: IncidentEvent, incident: IncidentDetail, isFirstFailure: boolean): Row {
   const heartbeat = incident.monitorType === 'HEARTBEAT'
   switch (e.type) {
     case 'CHECK_FAILED':
-      return { icon: XCircle, tone: 'red', title: heartbeat ? 'Ping missed' : 'First failed check', body: e.detail, at: e.at }
+      return {
+        icon: XCircle,
+        tone: 'red',
+        title: heartbeat ? 'Ping missed' : isFirstFailure ? 'First failed check' : 'Check failed',
+        body: e.detail,
+        at: e.at,
+      }
     case 'OPENED':
       return {
         icon: AlertTriangle,
@@ -104,7 +110,8 @@ function offset(at: string, start: string): string {
 }
 
 export function IncidentTimeline({ incident }: { incident: IncidentDetail }) {
-  const rows = incident.timeline.map((e) => describe(e, incident))
+  const firstFailure = incident.timeline.findIndex((e) => e.type === 'CHECK_FAILED')
+  const rows = incident.timeline.map((e, i) => describe(e, incident, i === firstFailure))
   const origin = incident.timeline[0]?.at ?? incident.startedAt
 
   if (incident.status === 'OPEN') {
