@@ -3,6 +3,7 @@ package com.viris.PulseGuard.billing;
 import com.viris.PulseGuard.auth.User;
 import com.viris.PulseGuard.enumeration.*;
 import jakarta.persistence.*;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -31,10 +32,25 @@ public class Subscription {
     @Column(nullable = false, length = 20)
     private Plan plan;
 
-    /** Stripe status string: active, past_due, canceled... */
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
-    private String status;
+    private SubscriptionStatus status;
 
     @Column(name = "current_period_end")
     private Instant currentPeriodEnd;
+
+    /** Cancelled in the portal: stays on {@link #plan} until the period ends. */
+    @Column(name = "cancel_at_period_end", nullable = false)
+    private boolean cancelAtPeriodEnd;
+
+    // No setter: stamped on every insert and update.
+    @Setter(AccessLevel.NONE)
+    @Column(name = "updated_at", nullable = false)
+    private Instant updatedAt;
+
+    @PrePersist
+    @PreUpdate
+    void touch() {
+        updatedAt = Instant.now();
+    }
 }

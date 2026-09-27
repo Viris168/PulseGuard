@@ -318,7 +318,8 @@ sequenceDiagram
 | POST | `/api/channels/{id}/test` | Send a test alert |
 | PATCH | `/api/auth/me` | Change my name |
 | GET | `/api/status-page` / PUT | My status page (204 until created) / create or replace it |
-| POST | `/api/billing/checkout` | Start Stripe Checkout |
+| GET | `/api/billing/subscription` | My plan, live subscription status and usage |
+| POST | `/api/billing/checkout` | Start Stripe Checkout (Free accounts only; subscribers use the portal) |
 | POST | `/api/billing/portal` | Open Stripe Customer Portal |
 | POST | `/api/stripe/webhook` | Stripe events (no auth, signature verified) |
 | GET | `/api/status/{slug}` | Public status page data (no auth, cached); the SPA renders it at `/status/{slug}` |

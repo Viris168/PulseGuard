@@ -1,0 +1,621 @@
+{
+	"info": {
+		"name": "PulseGuard Billing",
+		"description": "The billing API and the webhook's front door.\n\nSETUP\n  docker compose up -d\n  ./mvnw spring-boot:run   (with real Stripe test-mode values in .env, see BILLING.md)\n\nRun folder 1 then folder 2 in the Collection Runner. Folder 1 calls Stripe in test mode:\nit creates one test customer and two Checkout Sessions per run, and never charges anything.\nFolder 2 makes no Stripe calls.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1 - Checkout and portal (Stripe test mode)",
+			"item": [
+				{
+					"name": "1. Register",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"// Fresh address every run.",
+									"pm.collectionVariables.set('email', 'billing+' + Date.now() + '@example.com');"
+								]
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('201 Created', () => pm.response.to.have.status(201));",
+									"const body = pm.response.json();",
+									"pm.test('starts on FREE', () => pm.expect(body.user.plan).to.eql('FREE'));",
+									"pm.collectionVariables.set('accessToken', body.token);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/register",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"register"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Billing Tester\",\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+						}
+					}
+				},
+				{
+					"name": "2. Summary on Free",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('200 OK', () => pm.response.to.have.status(200));",
+									"const body = pm.response.json();",
+									"pm.test('plan is FREE', () => pm.expect(body.plan).to.eql('FREE'));",
+									"pm.test('no subscription yet', () => { pm.expect(body.status).to.be.null; pm.expect(body.currentPeriodEnd).to.be.null; pm.expect(body.cancelAtPeriodEnd).to.eql(false); });",
+									"pm.test('usage counts monitors', () => pm.expect(body.usage.monitors).to.eql(0));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/billing/subscription",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"billing",
+								"subscription"
+							]
+						}
+					}
+				},
+				{
+					"name": "3. Portal before any checkout",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('409 Conflict', () => pm.response.to.have.status(409));",
+									"pm.test('explains why', () => pm.expect(pm.response.json().message).to.include('Upgrade to a paid plan first'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/billing/portal",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"billing",
+								"portal"
+							]
+						},
+						"description": "No Stripe customer exists until the first checkout, so there is no portal to open."
+					}
+				},
+				{
+					"name": "4. Start Pro checkout",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('200 OK', () => pm.response.to.have.status(200));",
+									"const body = pm.response.json();",
+									"pm.test('returns a Stripe Checkout URL', () => pm.expect(body.url).to.match(/^https:\\/\\/checkout\\.stripe\\.com\\//));",
+									"pm.collectionVariables.set('checkoutUrl', body.url);",
+									"console.log('Open to pay with 4242 4242 4242 4242:', body.url);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/billing/checkout",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"billing",
+								"checkout"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"plan\": \"PRO\"\n}"
+						},
+						"description": "Creates the Stripe customer (first time only) and a Checkout Session in test mode. Open the URL printed in the console to pay; with `stripe listen` running, the webhook then upgrades the account."
+					}
+				},
+				{
+					"name": "5. Checkout again reuses the customer",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('200 OK', () => pm.response.to.have.status(200));",
+									"pm.test('a new Checkout URL', () => pm.expect(pm.response.json().url).to.match(/^https:\\/\\/checkout\\.stripe\\.com\\//).and.not.eql(pm.collectionVariables.get('checkoutUrl')));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/billing/checkout",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"billing",
+								"checkout"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"plan\": \"BUSINESS\"\n}"
+						},
+						"description": "Still FREE (nothing paid), so a second checkout is allowed. The server links one Stripe customer per user; check the Stripe dashboard: one customer, two sessions."
+					}
+				},
+				{
+					"name": "6. Portal now opens",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('200 OK', () => pm.response.to.have.status(200));",
+									"pm.test('returns a Stripe portal URL', () => pm.expect(pm.response.json().url).to.match(/^https:\\/\\/billing\\.stripe\\.com\\//));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/billing/portal",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"billing",
+								"portal"
+							]
+						},
+						"description": "Needs the Customer Portal to be configured in the Stripe dashboard (Settings, Billing, Customer portal); otherwise Stripe refuses and this is a 502."
+					}
+				},
+				{
+					"name": "7. Still FREE: only the webhook upgrades",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('200 OK', () => pm.response.to.have.status(200));",
+									"pm.test('plan unchanged by starting a checkout', () => pm.expect(pm.response.json().plan).to.eql('FREE'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/billing/subscription",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"billing",
+								"subscription"
+							]
+						},
+						"description": "Unless you paid in between: then it is PRO or BUSINESS, which is the point of the webhook."
+					}
+				}
+			]
+		},
+		{
+			"name": "2 - Rejections",
+			"item": [
+				{
+					"name": "Buy the Free plan",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+									"pm.test('explains why', () => pm.expect(pm.response.json().message).to.include(\"can't be bought\"));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/billing/checkout",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"billing",
+								"checkout"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"plan\": \"FREE\"\n}"
+						}
+					}
+				},
+				{
+					"name": "Checkout without a plan",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+									"pm.test('names the field', () => pm.expect(pm.response.json().fieldErrors).to.have.property('plan'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/billing/checkout",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"billing",
+								"checkout"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{}"
+						}
+					}
+				},
+				{
+					"name": "Checkout for a plan that doesn't exist",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('400, not 401: a bad body must not look like a lost session', () => pm.response.to.have.status(400));",
+									"pm.test('lists the plans that exist', () => pm.expect(pm.response.json().fieldErrors.plan).to.eql('must be one of FREE, PRO, BUSINESS'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/billing/checkout",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"billing",
+								"checkout"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"plan\": \"GOLD\"\n}"
+						}
+					}
+				},
+				{
+					"name": "Summary without a token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('401 Unauthorized', () => pm.response.to.have.status(401));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/billing/subscription",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"billing",
+								"subscription"
+							]
+						}
+					}
+				},
+				{
+					"name": "Checkout without a token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('401 Unauthorized', () => pm.response.to.have.status(401));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/billing/checkout",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"billing",
+								"checkout"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"plan\": \"PRO\"\n}"
+						}
+					}
+				},
+				{
+					"name": "Webhook without a signature",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('400: no token needed, but a signature is', () => pm.response.to.have.status(400));",
+									"pm.test('deliberately vague', () => pm.expect(pm.response.json().message).to.eql('Invalid webhook signature.'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/stripe/webhook",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"stripe",
+								"webhook"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"id\": \"evt_fake\", \"object\": \"event\", \"type\": \"customer.subscription.updated\",\n  \"data\": { \"object\": { \"id\": \"sub_fake\", \"customer\": \"cus_fake\", \"status\": \"active\" } }\n}"
+						},
+						"description": "The endpoint is public; the Stripe-Signature header is what proves the caller is Stripe."
+					}
+				},
+				{
+					"name": "Webhook with a forged signature",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"// A fresh timestamp, so the rejection is the signature itself, not the 5-minute replay window.",
+									"pm.collectionVariables.set('now', Math.floor(Date.now() / 1000));"
+								]
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('400: signed with the wrong secret', () => pm.response.to.have.status(400));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Stripe-Signature",
+								"value": "t={{now}},v1=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8bd"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/stripe/webhook",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"stripe",
+								"webhook"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"id\": \"evt_fake\", \"object\": \"event\", \"type\": \"customer.subscription.updated\",\n  \"data\": { \"object\": { \"id\": \"sub_fake\", \"customer\": \"cus_fake\", \"status\": \"active\" } }\n}"
+						}
+					}
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080"
+		},
+		{
+			"key": "password",
+			"value": "secret123"
+		},
+		{
+			"key": "email",
+			"value": ""
+		},
+		{
+			"key": "accessToken",
+			"value": ""
+		},
+		{
+			"key": "checkoutUrl",
+			"value": ""
+		},
+		{
+			"key": "now",
+			"value": ""
+		}
+	]
+}

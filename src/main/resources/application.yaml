@@ -124,3 +124,18 @@ pulseguard:
   status-page:
     # How long a rendered public status page is served; saving the page evicts it at once.
     cache-ttl: ${PULSEGUARD_STATUS_PAGE_CACHE_TTL:60s}
+  stripe:
+    # Test-mode keys locally (sk_test_...). The webhook secret comes from `stripe listen` in dev
+    # and from the dashboard's endpoint settings in production.
+    secret-key: ${STRIPE_SECRET_KEY}
+    webhook-secret: ${STRIPE_WEBHOOK_SECRET}
+    # Monthly recurring prices from the Stripe product catalog (price_...).
+    prices:
+      PRO: ${STRIPE_PRICE_PRO}
+      BUSINESS: ${STRIPE_PRICE_BUSINESS}
+    # The frontend; Checkout and the Customer Portal redirect back here.
+    app-base-url: ${PULSEGUARD_APP_BASE_URL}
+    # A billing request must not hang a web thread on a slow Stripe; the SDK retries on its own.
+    connect-timeout: 5s
+    read-timeout: 20s
+    max-network-retries: 2

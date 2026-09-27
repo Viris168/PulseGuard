@@ -1,11 +1,8 @@
 /**
  * Auth API — live against AuthController (register, login, refresh via http.ts, logout, me,
- * profile, password). One piece is still local because the backend has no endpoint for it yet:
- * the billing/subscription data other mock modules read through mockAccount().
+ * profile, password).
  */
 import type { AuthResponse, ChangePasswordRequest, LoginRequest, RegisterRequest, User } from '../types/auth'
-import type { SubscriptionStatus } from '../types/billing'
-import { ApiError } from './errors'
 import { api } from './http'
 import { getSession, setSession, updateSessionUser } from './session'
 
@@ -57,57 +54,9 @@ export async function updateProfile(req: { name: string }): Promise<User> {
   return user
 }
 
-// --- Local stand-in for data the backend doesn't serve yet (billing, subscriptions) -----------
-
-const STORE_KEY = 'pg-mock-accounts'
-
-/** The signed-in user plus the subscription row the billing mock simulates. */
-export interface MockAccount extends User {
-  /** Row of `subscriptions`; absent on the Free plan. */
-  subscription?: { status: SubscriptionStatus; currentPeriodEnd: string; cancelAtPeriodEnd: boolean }
-}
-
-function loadAccounts(): Record<number, MockAccount> {
-  try {
-    const raw = localStorage.getItem(STORE_KEY)
-    if (raw) return JSON.parse(raw) as Record<number, MockAccount>
-  } catch {
-    // Fall through to empty.
-  }
-  return {}
-}
-
-function saveAccounts(accounts: Record<number, MockAccount>) {
-  try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(accounts))
-  } catch {
-    // Local extras just won't survive a reload.
-  }
-}
-
-/**
- * For the modules still on mock data (billing, status pages, AI): the account behind
- * a user id. Built from the real signed-in user the first time, so those pages work on top of
- * a real login. The plan here is the backend's until the billing mock changes it locally.
- */
-export function mockAccount(userId: number): MockAccount {
-  const accounts = loadAccounts()
-  const existing = accounts[userId]
-  const user = getSession()?.user
-  // Only plan and subscription are simulated here; name and email always come from the server,
-  // or a billing change would write a stale name back into the session.
-  if (existing) return user?.id === userId ? { ...existing, name: user.name, email: user.email } : existing
-  if (!user || user.id !== userId) throw new ApiError(401, 'Your session has expired. Please sign in again.')
-  accounts[userId] = { ...user }
-  saveAccounts(accounts)
-  return accounts[userId]
-}
-
-export function mockUpdateAccount(userId: number, patch: Partial<MockAccount>): User {
-  const account = { ...mockAccount(userId), ...patch }
-  const accounts = loadAccounts()
-  accounts[userId] = account
-  saveAccounts(accounts)
-  const { subscription: _s, ...user } = account
-  return user
+// The billing mock kept accounts here; billing is live now. Clear the leftover copy once.
+try {
+  localStorage.removeItem('pg-mock-accounts')
+} catch {
+  // Storage blocked; nothing was stored either.
 }

@@ -1,5 +1,7 @@
 # Postman
 
+Two collections: **Auth** (below) and **Billing** (at the end).
+
 `PulseGuard-Auth.postman_collection.json` — 25 requests, 49 assertions, covering every auth
 endpoint plus the security behaviour that is worth seeing rather than taking on trust.
 
@@ -43,3 +45,32 @@ docker compose exec redis redis-cli FLUSHALL
 - **9** — the first session's refresh token dies without ever being sent to the server.
 - **14** — logout is global, not per-token.
 - **Login, unknown email** — byte-identical to a wrong password, so accounts cannot be enumerated.
+
+---
+
+# Billing collection
+
+`PulseGuard-Billing.postman_collection.json` — 14 requests, 27 assertions: the billing API and
+the webhook's front door.
+
+Needs real Stripe **test-mode** values in `.env` (see BILLING.md). Folder 1 calls Stripe: each run
+creates one test customer and two Checkout Sessions, and never charges anything.
+
+```bash
+npx newman run postman/PulseGuard-Billing.postman_collection.json
+```
+
+| Folder | What it shows |
+|---|---|
+| 1 - Checkout and portal | Summary on Free → portal refused before a customer exists → Checkout URL → second checkout reuses the customer → portal URL → still Free |
+| 2 - Rejections | Buying Free, missing or unknown plan, no token, webhook without or with a forged signature. No Stripe calls |
+
+What the interesting steps prove:
+
+- **4 / 7** — starting a checkout never changes the plan. Only Stripe's signed webhook does.
+- **5** — one Stripe customer per user, however many checkouts: check the dashboard.
+- **Webhook, forged signature** — the endpoint needs no token, and still rejects anything Stripe didn't sign.
+
+To finish a payment, open the Checkout URL from step 4 (the Postman console prints it) and pay with
+`4242 4242 4242 4242`. With `stripe listen` running, step 7 then shows the new plan.
+Not covered here: checkout while already subscribed (409) — that needs a paid subscription first.

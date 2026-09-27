@@ -9,7 +9,8 @@ Personal reminder of features discussed and the order to build them.
 2. **Email alerts** — on incident open and resolve (this is what customers pay for).
 3. **Connect frontend to real API** — `frontend/src/api/monitors.ts` is still mock data.
 4. **Analytics dashboard** — see below.
-5. **Stripe billing** — checkout, customer portal, webhook → set `user.plan`.
+5. **Stripe billing** — ✅ done: checkout, customer portal, webhook → set `user.plan`.
+   Local setup in BILLING.md; downgrades slow monitors and switch off channels the plan drops.
 6. **Extras** — heartbeat URLs, public status page, Ask AI, API keys.
 
 ---

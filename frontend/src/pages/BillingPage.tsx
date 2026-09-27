@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
-import { AlertTriangle, Check, CheckCircle2, CreditCard, ExternalLink, Info, Minus, X } from 'lucide-react'
-import { getBillingSummary, mockPortalChangePlan, mockPortalResume, openPortal, startCheckout } from '../api/billing'
+import { useSearchParams } from 'react-router-dom'
+import { AlertTriangle, Check, CheckCircle2, Clock, CreditCard, ExternalLink, Info, Minus, X } from 'lucide-react'
+import { me } from '../api/auth'
+import { getBillingSummary, openPortal, startCheckout } from '../api/billing'
+import { updateSessionUser } from '../api/session'
 import { useAuth } from '../auth/authContext'
 import type { Plan } from '../types/auth'
 import type { BillingSummary } from '../types/billing'
@@ -29,15 +31,23 @@ const formatLongDate = (iso: string) => longDate.format(new Date(iso))
 
 const everyLabel = (seconds: number) => `Every ${seconds / 60} min`
 
+// After Checkout, Stripe redirects the browser and sends the webhook separately; the webhook
+// usually lands within a few seconds. Poll for it this long before saying it's slow.
+const CONFIRM_POLL_MS = 1500
+const CONFIRM_MAX_POLLS = 14
+
+
 export function BillingPage() {
   const { user } = useAuth()
-  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const [summary, setSummary] = useState<BillingSummary | null>(null)
   const [pending, setPending] = useState<PlanInfo | null>(null)
   const [working, setWorking] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [portalLoading, setPortalLoading] = useState(false)
+  const [portalError, setPortalError] = useState<string | null>(null)
+  /** The plan whose confirmation polling gave up; "Check again" or a late webhook can still confirm it. */
+  const [gaveUpOn, setGaveUpOn] = useState<string | null>(null)
 
   const load = useCallback(() => getBillingSummary().then(setSummary), [])
 
@@ -46,9 +56,65 @@ export function BillingPage() {
     // The plan lives on the user; reload when it changes (upgrade, downgrade, other tab).
   }, [load, user?.plan])
 
-  // Only trust the success return if it matches the plan we actually have (stale links, other accounts).
-  const checkoutDone = params.get('checkout') === 'success' && !!summary && params.get('plan') === summary.plan
-  const notice = checkoutDone ? 'checkout' : params.get('portal') === 'mock' ? 'portal' : null
+  // Back from Stripe via the browser's Back button can restore this page from the back-forward
+  // cache exactly as it was left: mid-redirect, buttons spinning. Reset that.
+  useEffect(() => {
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (!e.persisted) return
+      setWorking(false)
+      setPortalLoading(false)
+      setPending(null)
+      load()
+    }
+    window.addEventListener('pageshow', onPageShow)
+    return () => window.removeEventListener('pageshow', onPageShow)
+  }, [load])
+
+  // The webhook changes the plan on the server. When the summary shows a newer plan than the
+  // signed-in user, refresh the user so the sidebar and every limit check follow.
+  useEffect(() => {
+    if (summary && user && summary.plan !== user.plan) {
+      me().then(updateSessionUser).catch(() => {
+        // Leave it; the next page load or /me picks it up.
+      })
+    }
+  }, [summary, user])
+
+  // `plan` comes back on Stripe's success redirect. Anyone can type that URL, so it only starts
+  // the wait; the plan itself always comes from the server.
+  const checkout = params.get('checkout')
+  const expectedPlan = checkout === 'success' ? params.get('plan') : null
+
+  useEffect(() => {
+    if (!expectedPlan) return
+    let stopped = false
+    let polls = 0
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const poll = async () => {
+      const latest = await getBillingSummary().catch(() => null)
+      if (stopped) return
+      if (latest) setSummary(latest)
+      if (latest?.plan === expectedPlan) return
+      if (++polls >= CONFIRM_MAX_POLLS) setGaveUpOn(expectedPlan)
+      else timer = setTimeout(poll, CONFIRM_POLL_MS)
+    }
+    poll()
+    return () => {
+      stopped = true
+      clearTimeout(timer)
+    }
+  }, [expectedPlan])
+
+  // Confirmed by whatever summary is loaded, so a late webhook plus "Check again" also lands here.
+  const checkoutState = expectedPlan
+    ? summary?.plan === expectedPlan
+      ? 'confirmed'
+      : gaveUpOn === expectedPlan
+        ? 'slow'
+        : 'confirming'
+    : checkout === 'cancelled'
+      ? 'cancelled'
+      : null
   const dismissNotice = () => setParams({}, { replace: true })
 
   async function confirmChange() {
@@ -56,42 +122,27 @@ export function BillingPage() {
     setWorking(true)
     setActionError(null)
     try {
-      if (PLAN_ORDER[pending.plan] > PLAN_ORDER[summary.plan]) {
-        // Real flow: this URL is Stripe Checkout; the webhook upgrades the plan after payment.
-        const { url } = await startCheckout(pending.plan as Exclude<Plan, 'FREE'>)
-        if (url.startsWith('/')) navigate(url, { replace: true })
-        else window.location.assign(url)
-      } else {
-        // Real flow: downgrades happen in the Stripe Customer Portal (openPortal).
-        await mockPortalChangePlan(pending.plan)
-      }
-      setPending(null)
-      await load()
+      // From Free it's a new subscription, bought in Checkout. Any other change edits the
+      // subscription they already have, which Stripe only allows in its portal.
+      const { url } =
+        summary.plan === 'FREE' ? await startCheckout(pending.plan as Exclude<Plan, 'FREE'>) : await openPortal()
+      window.location.assign(url)
+      // Stay "working" while the browser leaves for Stripe.
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'Something went wrong')
-    } finally {
       setWorking(false)
     }
   }
 
   async function manageBilling() {
     setPortalLoading(true)
+    setPortalError(null)
     try {
       const { url } = await openPortal()
-      if (url.startsWith('/')) navigate(url, { replace: true })
-      else window.location.assign(url)
-    } finally {
+      window.location.assign(url)
+    } catch (e) {
+      setPortalError(e instanceof Error ? e.message : 'Something went wrong')
       setPortalLoading(false)
-    }
-  }
-
-  async function resume() {
-    setWorking(true)
-    try {
-      await mockPortalResume()
-      await load()
-    } finally {
-      setWorking(false)
     }
   }
 
@@ -126,15 +177,39 @@ export function BillingPage() {
       />
 
       <div className="space-y-3">
-        {notice === 'checkout' && (
+        {checkoutState === 'confirming' && (
+          <Notice tone="sky" icon={Clock} title="Confirming your payment…">
+            Stripe is letting us know. Your new limits apply as soon as it does, usually within a few seconds.
+          </Notice>
+        )}
+        {checkoutState === 'confirmed' && (
           <Notice tone="green" icon={CheckCircle2} onDismiss={dismissNotice} title={`You're on ${current.name} now`}>
             Thanks for upgrading. Your new limits apply right away.
           </Notice>
         )}
-        {notice === 'portal' && (
-          <Notice tone="sky" icon={Info} onDismiss={dismissNotice} title="Stripe Customer Portal">
-            In production this opens Stripe's billing portal, where you update your card, download invoices and change
-            or cancel your plan. While the app runs on mock data, use the plan buttons below instead.
+        {checkoutState === 'slow' && (
+          <Notice
+            tone="amber"
+            icon={AlertTriangle}
+            onDismiss={dismissNotice}
+            title="Still waiting for Stripe"
+            action={
+              <Button size="sm" variant="secondary" onClick={() => load()}>
+                Check again
+              </Button>
+            }
+          >
+            If you completed the payment, your plan will update shortly. You haven't been charged twice.
+          </Notice>
+        )}
+        {checkoutState === 'cancelled' && (
+          <Notice tone="sky" icon={Info} onDismiss={dismissNotice} title="Checkout cancelled">
+            You weren't charged. Pick a plan whenever you're ready.
+          </Notice>
+        )}
+        {portalError && (
+          <Notice tone="red" icon={AlertTriangle} onDismiss={() => setPortalError(null)} title="Couldn't open billing">
+            {portalError}
           </Notice>
         )}
         {summary.cancelAtPeriodEnd && summary.currentPeriodEnd && (
@@ -143,7 +218,7 @@ export function BillingPage() {
             icon={AlertTriangle}
             title={`Your ${current.name} plan ends on ${formatLongDate(summary.currentPeriodEnd)}`}
             action={
-              <Button size="sm" variant="secondary" onClick={resume} loading={working}>
+              <Button size="sm" variant="secondary" onClick={manageBilling} loading={portalLoading}>
                 Keep {current.name}
               </Button>
             }
@@ -154,13 +229,13 @@ export function BillingPage() {
           </Notice>
         )}
         {summary.status === 'past_due' && (
-          <Notice tone="red" icon={AlertTriangle} title="Your last payment failed" action={<Button size="sm" onClick={manageBilling}>Update card</Button>}>
+          <Notice tone="red" icon={AlertTriangle} title="Your last payment failed" action={<Button size="sm" onClick={manageBilling} loading={portalLoading}>Update card</Button>}>
             Update your payment method to keep your {current.name} features.
           </Notice>
         )}
       </div>
 
-      <div className={cn('grid gap-4 lg:grid-cols-3', (notice || summary.cancelAtPeriodEnd || summary.status === 'past_due') && 'mt-6')}>
+      <div className={cn('grid gap-4 lg:grid-cols-3', (checkoutState || portalError || summary.cancelAtPeriodEnd || summary.status === 'past_due') && 'mt-6')}>
         <Card className="p-5">
           <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Current plan</p>
           <div className="mt-2 flex items-baseline gap-2">
@@ -346,6 +421,8 @@ interface DialogProps {
 function ChangePlanDialog({ target, summary, working, error, onCancel, onConfirm }: DialogProps) {
   if (!target) return null
   const upgrade = PLAN_ORDER[target.plan] > PLAN_ORDER[summary.plan]
+  // Free buys a subscription in Checkout; a subscriber changes theirs in the portal.
+  const viaCheckout = summary.plan === 'FREE'
   const current = planInfo(summary.plan)
   const over = summary.usage.monitors - target.limits.maxMonitors
   const lost = current.limits.channels.filter((c) => !target.limits.channels.includes(c))
@@ -361,7 +438,7 @@ function ChangePlanDialog({ target, summary, working, error, onCancel, onConfirm
             Cancel
           </Button>
           <Button variant={upgrade ? 'primary' : 'danger'} onClick={onConfirm} loading={working}>
-            {upgrade ? `Continue to payment` : `Switch to ${target.name}`}
+            {viaCheckout ? 'Continue to payment' : 'Continue to Stripe'}
           </Button>
         </>
       }
@@ -374,7 +451,9 @@ function ChangePlanDialog({ target, summary, working, error, onCancel, onConfirm
             {target.limits.channels.map((c) => CHANNEL_NAME[c]).join(', ')} alerts.
           </p>
           <p className="mt-3 rounded-lg bg-zinc-100 px-3 py-2 text-xs dark:bg-zinc-800">
-            In production this opens Stripe Checkout. On mock data, continuing simulates a successful payment.
+            {viaCheckout
+              ? "You'll enter your card on Stripe's secure checkout page. PulseGuard never sees your card number."
+              : "You'll confirm the change in Stripe's billing portal. Stripe charges the difference for the rest of this period."}
           </p>
         </>
       ) : (
@@ -398,7 +477,7 @@ function ChangePlanDialog({ target, summary, working, error, onCancel, onConfirm
             </p>
           )}
           <p className="mt-3 rounded-lg bg-zinc-100 px-3 py-2 text-xs dark:bg-zinc-800">
-            In production this happens in the Stripe Customer Portal.
+            You'll confirm this in Stripe's billing portal.
           </p>
         </>
       )}

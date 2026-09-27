@@ -9,12 +9,11 @@
 import type { Plan } from '../types/auth'
 import type { IncidentDetail } from '../types/incident'
 import { formatDateTime, formatDuration, formatMs, formatTime, formatUptime, heartbeatDue, incidentDurationSeconds } from '../lib/format'
-import { mockAccount } from './auth'
 import { ApiError } from './errors'
 import type { MockIncident, MockMonitor } from './mockData'
 import { db, delay, ownIncidents, ownMonitors } from './mockDb'
 import { computeStats } from './mockHistory'
-import { requireUserId } from './session'
+import { requireUser, requireUserId } from './session'
 
 export interface AiLink {
   label: string
@@ -108,7 +107,7 @@ export async function saveAiAccess(access: AiAccess): Promise<AiAccess> {
 /** GET /api/ai/quota */
 export async function getAiQuota(): Promise<AiQuota> {
   const userId = requireUserId()
-  return { used: readUsage(userId), limit: AI_DAILY_LIMIT[mockAccount(userId).plan] }
+  return { used: readUsage(userId), limit: AI_DAILY_LIMIT[requireUser().plan] }
 }
 
 /** POST /api/ai/ask { question } */
@@ -119,7 +118,7 @@ export async function askAi(question: string): Promise<AiAnswer> {
   if (q.length > 500) throw new ApiError(400, 'Validation failed', { question: 'Keep questions under 500 characters' })
   const access = readAccess(userId)
   if (!access.enabled) throw new ApiError(403, 'Turn on Ask AI first.')
-  const plan = mockAccount(userId).plan
+  const plan = requireUser().plan
   const limit = AI_DAILY_LIMIT[plan]
   const used = readUsage(userId)
   if (limit !== null && used >= limit) {

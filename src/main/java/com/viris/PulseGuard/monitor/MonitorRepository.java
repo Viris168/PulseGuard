@@ -19,6 +19,9 @@ public interface MonitorRepository extends JpaRepository<Monitor, Long> {
 
     long countByUserId(Long userId);
 
+    /** Monitors checking more often than a plan allows, e.g. after a downgrade. */
+    List<Monitor> findAllByUserIdAndIntervalSecondsLessThan(Long userId, int intervalSeconds);
+
     // Internal (scheduler) use only
     List<Monitor> findAllByActiveTrue();
 
