@@ -3,6 +3,7 @@ package com.viris.PulseGuard.auth;
 import com.viris.PulseGuard.auth.jwt.JwtAuthenticationFilter;
 import com.viris.PulseGuard.common.exception.RestAuthenticationEntryPoint;
 import com.viris.PulseGuard.auth.jwt.JwtProperties;
+import jakarta.servlet.DispatcherType;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -49,6 +50,11 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // The container's internal forward to /error after an unhandled exception.
+                        // The JWT filter does not run again on it, so without this every 500 or 404
+                        // reached the client as a 401, which the frontend treats as "signed out".
+                        // A request made to /error directly is a normal REQUEST and still needs a token.
+                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         // Only the unauthenticated entry points; /me and /logout need a token.
                         .requestMatchers(HttpMethod.POST,
                                 "/api/auth/register", "/api/auth/login", "/api/auth/refresh").permitAll()
