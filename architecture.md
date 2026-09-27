@@ -60,7 +60,7 @@ flowchart TB
 ### 3.1 Web Layer
 - **REST API** (`/api/**`) built with Spring Web — consumed by the dashboard or any client.
 - **Dashboard UI** — Thymeleaf pages (simplest) or a separate React SPA calling the REST API.
-- **Public Status Page** (`/status/{slug}`) — read-only, no auth, cached.
+- **Public Status Page** (`/status/{slug}` in the SPA, data from `GET /api/status/{slug}`) — read-only, no auth, cached.
 
 ### 3.2 Security
 - Spring Security with JWT (for SPA) or session cookies (for Thymeleaf).
@@ -313,11 +313,15 @@ sequenceDiagram
 | GET | `/api/monitors/{id}/stats?range=24h\|7d\|30d` | Uptime %, response times |
 | GET | `/api/incidents?status=OPEN` | Incident list |
 | GET | `/api/incidents/{id}` | Incident detail |
-| GET | `/api/channels` / POST / DELETE | Manage alert channels |
+| GET | `/api/channels` / POST | List / add alert channels |
+| PATCH | `/api/channels/{id}` / DELETE | Enable, disable or delete a channel |
+| POST | `/api/channels/{id}/test` | Send a test alert |
+| PATCH | `/api/auth/me` | Change my name |
+| GET | `/api/status-page` / PUT | My status page (204 until created) / create or replace it |
 | POST | `/api/billing/checkout` | Start Stripe Checkout |
 | POST | `/api/billing/portal` | Open Stripe Customer Portal |
 | POST | `/api/stripe/webhook` | Stripe events (no auth, signature verified) |
-| GET | `/status/{slug}` | Public status page |
+| GET | `/api/status/{slug}` | Public status page data (no auth, cached); the SPA renders it at `/status/{slug}` |
 
 ---
 

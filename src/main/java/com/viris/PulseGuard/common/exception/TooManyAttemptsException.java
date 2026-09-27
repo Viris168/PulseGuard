@@ -4,4 +4,8 @@ public class TooManyAttemptsException extends RuntimeException {
     public TooManyAttemptsException() {
         super("Too many login attempts. Try again later.");
     }
+
+    public TooManyAttemptsException(String message) {
+        super(message);
+    }
 }

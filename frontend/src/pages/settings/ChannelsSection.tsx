@@ -32,17 +32,9 @@ const TYPES: { type: ChannelType; label: string; icon: LucideIcon; placeholder: 
 const ICON: Record<ChannelType, LucideIcon> = { EMAIL: Mail, SLACK: Hash, SMS: Smartphone, TELEGRAM: Send, WEBHOOK: Webhook }
 const LABEL: Record<ChannelType, string> = { EMAIL: 'Email', SLACK: 'Slack', SMS: 'SMS', TELEGRAM: 'Telegram', WEBHOOK: 'Webhook' }
 
-/** Webhook URLs are credentials: never show them in full once saved. */
+/** The server already masks webhook URLs (host only); drop the scheme to keep it short. */
 function displayTarget(c: NotificationChannel): string {
-  if (c.type === 'SLACK' || c.type === 'WEBHOOK') {
-    try {
-      const u = new URL(c.target)
-      return `${u.host}/…${c.target.slice(-4)}`
-    } catch {
-      return `…${c.target.slice(-4)}`
-    }
-  }
-  return c.target
+  return c.target.replace(/^https?:\/\//, '')
 }
 
 /** Cheapest plan that includes a channel type. */
@@ -102,9 +94,12 @@ export function ChannelsSection() {
 
   async function toggle(c: NotificationChannel, enabled: boolean) {
     setBusy(c.id)
+    setTested(({ [c.id]: _, ...rest }) => rest)
     try {
       const updated = await setChannelEnabled(c.id, enabled)
       setChannels((list) => list?.map((x) => (x.id === c.id ? updated : x)) ?? null)
+    } catch (err) {
+      setTested((t) => ({ ...t, [c.id]: err instanceof Error ? err.message : 'Could not update channel' }))
     } finally {
       setBusy(null)
     }

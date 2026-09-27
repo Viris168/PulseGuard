@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { DEMO_CREDENTIALS } from '../../api/auth'
 import { useAuth } from '../../auth/authContext'
 import { Button } from '../../components/ui/Button'
 import { Field, Input, PasswordInput } from '../../components/ui/Field'
@@ -87,27 +86,6 @@ export function LoginPage() {
           Create an account
         </Link>
       </p>
-
-      {/* Only while the app runs on mock data. */}
-      <div className="mt-8 rounded-lg border border-dashed border-zinc-300 p-3 text-sm dark:border-zinc-700">
-        <p className="font-medium">Demo account</p>
-        <p className="mt-0.5 text-zinc-500 dark:text-zinc-400">
-          <span className="font-mono text-xs">{DEMO_CREDENTIALS.email}</span> /{' '}
-          <span className="font-mono text-xs">{DEMO_CREDENTIALS.password}</span>
-        </p>
-        <button
-          type="button"
-          onClick={() => {
-            setEmail(DEMO_CREDENTIALS.email)
-            setPassword(DEMO_CREDENTIALS.password)
-            setErrors({})
-            setBanner(null)
-          }}
-          className="mt-2 text-sm font-medium text-emerald-700 hover:underline dark:text-emerald-400"
-        >
-          Fill in demo login
-        </button>
-      </div>
     </>
   )
 }

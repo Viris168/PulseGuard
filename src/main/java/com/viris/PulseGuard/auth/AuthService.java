@@ -1,6 +1,7 @@
 package com.viris.PulseGuard.auth;
 
 import com.viris.PulseGuard.auth.dto.AuthResponse;
+import com.viris.PulseGuard.auth.dto.UpdateProfileRequest;
 import com.viris.PulseGuard.auth.dto.ChangePasswordRequest;
 import com.viris.PulseGuard.auth.dto.LoginRequest;
 import com.viris.PulseGuard.auth.dto.RegisterRequest;
@@ -182,6 +183,19 @@ public class AuthService {
         log.info("Password changed for user {}; all sessions revoked", user.getId());
 
         return issueTokens(UserPrincipal.from(user), UserMapper.from(user));
+    }
+
+    /**
+     * Renames the caller. Tokens are untouched: the name is not a claim, and {@code /me} reads
+     * the row on every request, so the new name shows up without reissuing anything.
+     */
+    @Transactional
+    public UserResponse updateProfile(UserPrincipal principal, UpdateProfileRequest request) {
+        User user = users.findById(principal.getUserId()).orElseThrow(InvalidCredentialsException::new);
+        // Managed entity: dirty checking writes the change at commit.
+        user.setName(request.name().trim());
+        log.info("Profile updated for user {}", user.getId());
+        return UserMapper.from(user);
     }
 
     /** The filter already loaded the current row; this reflects any change made since issue. */

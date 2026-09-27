@@ -56,6 +56,10 @@ spring:
       mail.smtp.connectiontimeout: 5000
       mail.smtp.timeout: 10000
       mail.smtp.writetimeout: 10000
+  cache:
+    # Dashboard stats (see StatsCacheConfig). Tests switch this to "none".
+    type: redis
+    cache-names: monitorStats,publicStatusPages
   task:
     execution:
       pool:
@@ -114,3 +118,9 @@ pulseguard:
   notification:
     # Sender shown on alert emails.
     from: ${PULSEGUARD_NOTIFICATION_FROM}
+  stats:
+    # How long cached dashboard stats are served; checks run at most every 60s.
+    cache-ttl: ${PULSEGUARD_STATS_CACHE_TTL}
+  status-page:
+    # How long a rendered public status page is served; saving the page evicts it at once.
+    cache-ttl: ${PULSEGUARD_STATUS_PAGE_CACHE_TTL:60s}

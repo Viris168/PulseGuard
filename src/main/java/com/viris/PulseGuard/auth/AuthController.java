@@ -5,6 +5,7 @@ import com.viris.PulseGuard.auth.dto.ChangePasswordRequest;
 import com.viris.PulseGuard.auth.dto.LoginRequest;
 import com.viris.PulseGuard.auth.dto.RefreshRequest;
 import com.viris.PulseGuard.auth.dto.RegisterRequest;
+import com.viris.PulseGuard.auth.dto.UpdateProfileRequest;
 import com.viris.PulseGuard.auth.dto.UserResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -65,6 +66,12 @@ public class AuthController {
     @GetMapping("/me")
     public UserResponse me(@AuthenticationPrincipal UserPrincipal principal) {
         return authService.currentUser(principal);
+    }
+
+    @PatchMapping("/me")
+    public UserResponse updateProfile(@AuthenticationPrincipal UserPrincipal principal,
+                                      @Valid @RequestBody UpdateProfileRequest request) {
+        return authService.updateProfile(principal, request);
     }
 
     /** @return the bearer token, or {@code null} when the header is absent or unusable. */

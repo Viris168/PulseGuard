@@ -2,6 +2,10 @@ package com.viris.PulseGuard.monitor;
 
 import com.viris.PulseGuard.auth.User;
 import com.viris.PulseGuard.auth.UserRepository;
+import com.viris.PulseGuard.check.Check;
+import com.viris.PulseGuard.check.CheckRepository;
+import com.viris.PulseGuard.enumeration.CheckResult;
+import com.viris.PulseGuard.enumeration.ErrorType;
 import com.viris.PulseGuard.auth.security.InMemoryLoginRateLimiter;
 import com.viris.PulseGuard.auth.security.InMemoryTokenDenylist;
 import com.viris.PulseGuard.auth.security.LoginRateLimiter;
@@ -21,11 +25,18 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import jakarta.persistence.EntityManagerFactory;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
+
 import java.net.InetAddress;
+import java.time.Duration;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -40,7 +51,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Exercises monitor CRUD through the real filter chain, with two tenants, so authorization
  * is proven where it actually runs rather than only in the service unit tests.
  */
-@SpringBootTest
+@SpringBootTest(properties = "spring.jpa.properties.hibernate.generate_statistics=true")
 @AutoConfigureMockMvc
 class MonitorApiIntegrationTest {
 
@@ -85,6 +96,12 @@ class MonitorApiIntegrationTest {
     ObjectMapper objectMapper;
     @Autowired
     SchedulerService schedulerService;
+    @Autowired
+    CheckRepository checks;
+    @Autowired
+    MonitorService monitorService;
+    @Autowired
+    EntityManagerFactory entityManagerFactory;
 
     private String aliceToken;
     private String bobToken;
@@ -297,5 +314,188 @@ class MonitorApiIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("at least 300")));
+    }
+
+    // --- check history -------------------------------------------------
+
+    private void recordCheck(long monitorId, CheckResult result, Instant at) {
+        Check check = new Check();
+        check.setMonitor(monitors.findById(monitorId).orElseThrow());
+        check.setResult(result);
+        check.setCheckedAt(at);
+        if (result == CheckResult.DOWN) {
+            check.setErrorType(ErrorType.TIMEOUT);
+            check.setErrorMessage("No response");
+        } else {
+            check.setStatusCode(200);
+            check.setResponseTimeMs(120);
+        }
+        checks.save(check);
+    }
+
+    @Test
+    void returnsCheckHistoryNewestFirstInTheFrontendShape() throws Exception {
+        long id = idOf(createMonitor(aliceToken), objectMapper);
+        Instant now = Instant.parse("2026-09-27T10:00:00Z");
+        recordCheck(id, CheckResult.UP, now.minusSeconds(120));
+        recordCheck(id, CheckResult.DOWN, now.minusSeconds(60));
+        recordCheck(id, CheckResult.UP, now);
+
+        mockMvc.perform(get("/api/monitors/" + id + "/checks?limit=2")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + aliceToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].checkedAt").value("2026-09-27T10:00:00Z"))
+                .andExpect(jsonPath("$[0].monitorId").value(id))
+                .andExpect(jsonPath("$[0].result").value("UP"))
+                .andExpect(jsonPath("$[0].statusCode").value(200))
+                .andExpect(jsonPath("$[0].responseTimeMs").value(120))
+                .andExpect(jsonPath("$[1].result").value("DOWN"))
+                .andExpect(jsonPath("$[1].errorType").value("TIMEOUT"))
+                .andExpect(jsonPath("$[1].errorMessage").value("No response"));
+    }
+
+    @Test
+    void returnsChecksInATimeRangeOldestFirst() throws Exception {
+        long id = idOf(createMonitor(aliceToken), objectMapper);
+        Instant t = Instant.parse("2026-09-27T10:00:00Z");
+        recordCheck(id, CheckResult.UP, t.minusSeconds(600));     // before the range
+        recordCheck(id, CheckResult.DOWN, t);
+        recordCheck(id, CheckResult.UP, t.plusSeconds(60));
+        recordCheck(id, CheckResult.UP, t.plusSeconds(600));      // after the range
+
+        mockMvc.perform(get("/api/monitors/" + id + "/checks")
+                        .param("from", "2026-09-27T09:59:00Z")
+                        .param("to", "2026-09-27T10:05:00Z")
+                        .param("order", "asc")
+                        .param("limit", "60")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + aliceToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].checkedAt").value("2026-09-27T10:00:00Z"))
+                .andExpect(jsonPath("$[1].checkedAt").value("2026-09-27T10:01:00Z"));
+    }
+
+    @Test
+    void rejectsAnUnknownOrder() throws Exception {
+        long id = idOf(createMonitor(aliceToken), objectMapper);
+
+        mockMvc.perform(get("/api/monitors/" + id + "/checks?order=sideways")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + aliceToken))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors.order").exists());
+    }
+
+    @Test
+    void anotherTenantsChecksAreNotFound() throws Exception {
+        long aliceMonitor = idOf(createMonitor(aliceToken), objectMapper);
+        recordCheck(aliceMonitor, CheckResult.UP, Instant.now());
+
+        mockMvc.perform(get("/api/monitors/" + aliceMonitor + "/checks")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + bobToken))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void rejectsOversizedLimit() throws Exception {
+        long id = idOf(createMonitor(aliceToken), objectMapper);
+
+        mockMvc.perform(get("/api/monitors/" + id + "/checks?limit=500")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + aliceToken))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Validation failed"))
+                .andExpect(jsonPath("$.fieldErrors.limit").exists());
+    }
+
+    // --- list with dashboard figures ------------------------------------
+
+    private ResultActions listAsAlice() throws Exception {
+        return mockMvc.perform(get("/api/monitors").header(HttpHeaders.AUTHORIZATION, "Bearer " + aliceToken));
+    }
+
+    @Test
+    void listIncludesUptimeLastResultAndRecentChecks() throws Exception {
+        long id = idOf(createMonitor(aliceToken), objectMapper);
+        Instant now = Instant.now();
+        recordCheck(id, CheckResult.UP, now.minus(Duration.ofHours(25)));   // outside the 24h window
+        recordCheck(id, CheckResult.DOWN, now.minusSeconds(180));
+        recordCheck(id, CheckResult.UP, now.minusSeconds(120));
+        recordCheck(id, CheckResult.UP, now.minusSeconds(60));
+        recordCheck(id, CheckResult.UP, now);
+
+        listAsAlice()
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].name").value("API health"))
+                .andExpect(jsonPath("$[0].uptime24h").value(75.0))          // 3 of the 4 checks in 24h
+                .andExpect(jsonPath("$[0].lastStatusCode").value(200))
+                .andExpect(jsonPath("$[0].lastResponseTimeMs").value(120))
+                // Oldest first, and the status bar is not limited to 24h.
+                .andExpect(jsonPath("$[0].recentChecks").value(org.hamcrest.Matchers.contains(true, false, true, true, true)));
+    }
+
+    @Test
+    void recentChecksAreTheNewestThirty() throws Exception {
+        long id = idOf(createMonitor(aliceToken), objectMapper);
+        Instant start = Instant.now().minusSeconds(3600);
+        for (int i = 0; i < 5; i++) {
+            recordCheck(id, CheckResult.DOWN, start.plusSeconds(i));        // the oldest five
+        }
+        for (int i = 5; i < 35; i++) {
+            recordCheck(id, CheckResult.UP, start.plusSeconds(i));
+        }
+
+        listAsAlice()
+                .andExpect(jsonPath("$[0].recentChecks.length()").value(30))
+                .andExpect(jsonPath("$[0].recentChecks[?(@ == false)]").isEmpty());
+    }
+
+    @Test
+    void aMonitorWithoutChecksHasEmptyFigures() throws Exception {
+        idOf(createMonitor(aliceToken), objectMapper);
+
+        listAsAlice()
+                .andExpect(jsonPath("$[0].uptime24h").isEmpty())
+                .andExpect(jsonPath("$[0].lastStatusCode").isEmpty())
+                .andExpect(jsonPath("$[0].lastResponseTimeMs").isEmpty())
+                .andExpect(jsonPath("$[0].recentChecks.length()").value(0));
+    }
+
+    @Test
+    void aPausedMonitorShowsNoUptimeButKeepsItsHistory() throws Exception {
+        long id = idOf(createMonitor(aliceToken), objectMapper);
+        recordCheck(id, CheckResult.UP, Instant.now());
+        mockMvc.perform(post("/api/monitors/" + id + "/pause").header(HttpHeaders.AUTHORIZATION, "Bearer " + aliceToken));
+
+        listAsAlice()
+                .andExpect(jsonPath("$[0].isActive").value(false))
+                .andExpect(jsonPath("$[0].uptime24h").isEmpty())
+                .andExpect(jsonPath("$[0].recentChecks.length()").value(1));
+    }
+
+    @Test
+    void anotherTenantsChecksNeverLeakIntoTheFigures() throws Exception {
+        long bobs = idOf(createMonitor(bobToken), objectMapper);
+        recordCheck(bobs, CheckResult.DOWN, Instant.now());
+        idOf(createMonitor(aliceToken), objectMapper);
+
+        listAsAlice()
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].recentChecks.length()").value(0));
+    }
+
+    @Test
+    void listUsesThreeQueriesHoweverManyMonitors() throws Exception {
+        User alice = users.findByEmail("alice@example.com").orElseThrow();
+        for (int i = 0; i < 5; i++) {
+            long id = idOf(createMonitor(aliceToken), objectMapper);
+            recordCheck(id, CheckResult.UP, Instant.now());
+        }
+        Statistics stats = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        stats.clear();
+
+        assertThat(monitorService.listMonitors(alice.getId())).hasSize(5);
+
+        // monitors + grouped uptime + LATERAL recent checks. Per-monitor queries would be 11.
+        assertThat(stats.getPrepareStatementCount()).isEqualTo(3);
     }
 }

@@ -31,11 +31,13 @@ export function formatMs(ms: number | null): string {
 
 /** 90 → "1m 30s", 7680 → "2h 8m", 273600 → "3d 4h". Drops zero parts and seconds past an hour. */
 export function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)}s`
-  const d = Math.floor(seconds / 86_400)
-  const h = Math.floor((seconds % 86_400) / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = Math.round(seconds % 60)
+  // Round once, up front: rounding only the remainder turns 119.9s into "1m 60s".
+  const total = Math.round(seconds)
+  if (total < 60) return `${total}s`
+  const d = Math.floor(total / 86_400)
+  const h = Math.floor((total % 86_400) / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
   if (d) return h ? `${d}d ${h}h` : `${d}d`
   if (h) return m ? `${h}h ${m}m` : `${h}h`
   return s ? `${m}m ${s}s` : `${m}m`

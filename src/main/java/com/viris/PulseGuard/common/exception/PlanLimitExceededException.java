@@ -33,6 +33,13 @@ public class PlanLimitExceededException extends RuntimeException {
                 plan, limitName, limit);
     }
 
+    /** Feature gates, e.g. "The FREE plan does not include SLACK alerts." */
+    public static PlanLimitExceededException notIncluded(Plan plan, String feature) {
+        return new PlanLimitExceededException(
+                "The " + plan + " plan does not include " + feature + ".",
+                plan, feature, 0);
+    }
+
     public Plan getPlan() {
         return plan;
     }

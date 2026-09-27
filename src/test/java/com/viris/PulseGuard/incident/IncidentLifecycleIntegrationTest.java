@@ -20,9 +20,11 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.data.domain.PageRequest;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.net.InetAddress;
+import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -121,6 +123,10 @@ class IncidentLifecycleIntegrationTest {
         assertThat(opened).hasSize(1);
         assertThat(opened.getFirst().getStatus()).isEqualTo(IncidentStatus.OPEN);
         assertThat(opened.getFirst().getCause()).startsWith("STATUS_MISMATCH");
+        // The outage began at the first failure, not at the third check that confirmed it.
+        Instant firstFailure = checks.findByMonitorIdOrderByCheckedAtDesc(monitorId, PageRequest.of(0, 3))
+                .getLast().getCheckedAt();
+        assertThat(opened.getFirst().getStartedAt()).isEqualTo(firstFailure);
 
         respond(200, 200);
         runChecks(2);
