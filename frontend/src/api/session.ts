@@ -58,9 +58,14 @@ export function onSessionChange(listener: (s: Session | null) => void): () => vo
  * session fails with 401 and clears local state, which sends the app back to the login page.
  */
 export function requireUserId(): number {
+  return requireUser().id
+}
+
+/** The signed-in user as the backend last reported it; the plan updates after /me. */
+export function requireUser(): User {
   if (!current) {
     setSession(null)
     throw new ApiError(401, 'Your session has expired. Please sign in again.')
   }
-  return current.user.id
+  return current.user
 }

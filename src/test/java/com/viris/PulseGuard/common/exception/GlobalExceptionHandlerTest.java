@@ -23,4 +23,14 @@ class GlobalExceptionHandlerTest {
                 .isEqualTo("This resource was changed by someone else. Reload and try again.")
                 .doesNotContain("com.viris");
     }
+
+    @Test
+    void paymentProviderFailureReturnsBadGatewayWithoutStripeDetails() {
+        var ex = new PaymentProviderException(new IllegalStateException("No such customer: cus_secret"));
+
+        ResponseEntity<ApiError> response = handler.handlePaymentProvider(ex);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
+        assertThat(response.getBody().message()).doesNotContain("cus_secret");
+    }
 }

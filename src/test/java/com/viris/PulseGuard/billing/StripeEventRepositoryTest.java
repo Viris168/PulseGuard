@@ -1,5 +1,6 @@
 package com.viris.PulseGuard.billing;
 
+import com.viris.PulseGuard.billing.repository.StripeEventRepository;
 import com.viris.PulseGuard.common.AbstractRepositoryTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,5 +27,12 @@ class StripeEventRepositoryTest extends AbstractRepositoryTest {
         em.clear();
 
         assertThat(events.findById("evt_1").orElseThrow().getProcessedAt()).isNotNull();
+    }
+
+    @Test
+    void recordsAnEventOnlyOnce() {
+        assertThat(events.insertIfAbsent("evt_1")).isEqualTo(1);
+        assertThat(events.insertIfAbsent("evt_1")).isZero();
+        assertThat(events.insertIfAbsent("evt_2")).isEqualTo(1);
     }
 }

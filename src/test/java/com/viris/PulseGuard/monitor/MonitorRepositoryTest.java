@@ -41,6 +41,23 @@ class MonitorRepositoryTest extends AbstractRepositoryTest {
     }
 
     @Test
+    void findsOnlyThisUsersMonitorsFasterThanALimit() {
+        User alice = newUser("alice@example.com");
+        User bob = newUser("bob@example.com");
+        Monitor fast = newMonitor(alice, "fast");
+        fast.setIntervalSeconds(60);
+        Monitor slow = newMonitor(alice, "slow");
+        slow.setIntervalSeconds(300);
+        Monitor bobsFast = newMonitor(bob, "bobs-fast");
+        bobsFast.setIntervalSeconds(60);
+        em.flush();
+
+        assertThat(monitors.findAllByUserIdAndIntervalSecondsLessThan(alice.getId(), 300))
+                .extracting(Monitor::getName)
+                .containsExactly("fast");
+    }
+
+    @Test
     void findsOnlyActiveMonitors() {
         User user = newUser("a@example.com");
         Monitor active = newMonitor(user, "active");

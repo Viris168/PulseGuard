@@ -1,12 +1,13 @@
 import type { Plan } from './auth'
 
-// Stripe subscription statuses the app cares about (`subscriptions.status`).
-export type SubscriptionStatus = 'active' | 'past_due' | 'canceled'
+// The Stripe statuses GET /api/billing/subscription reports: only ones that keep the paid plan
+// (enumeration/SubscriptionStatus.grantsPlan). An ended subscription is reported as null.
+export type SubscriptionStatus = 'trialing' | 'active' | 'past_due'
 
-// GET /api/billing/subscription — not in architecture.md yet; the billing page needs it.
+// Mirrors billing/dto/BillingSummaryResponse
 export interface BillingSummary {
   plan: Plan
-  /** null on the Free plan (no Stripe subscription). */
+  /** null on the Free plan (never subscribed, or the subscription ended). */
   status: SubscriptionStatus | null
   currentPeriodEnd: string | null
   /** Set when the user cancelled in the Stripe portal; the plan drops to Free at period end. */

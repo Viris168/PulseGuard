@@ -48,6 +48,41 @@ class UserRepositoryTest extends AbstractRepositoryTest {
     }
 
     @Test
+    void rejectsSecondUserWithSameStripeCustomerId() {
+        User first = newUser("a@example.com");
+        first.setStripeCustomerId("cus_123");
+        em.persistAndFlush(first);
+        User second = newUser("b@example.com");
+        second.setStripeCustomerId("cus_123");
+
+        assertThatThrownBy(() -> users.saveAndFlush(second))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void linksAStripeCustomerOnlyOnceAndLeavesThePlanAlone() {
+        User user = newUser("a@example.com");
+        user.setPlan(Plan.PRO);
+        em.persistAndFlush(user);
+
+        assertThat(users.linkStripeCustomer(user.getId(), "cus_first")).isEqualTo(1);
+        assertThat(users.linkStripeCustomer(user.getId(), "cus_second")).isZero();
+        em.clear();
+
+        User reloaded = users.findById(user.getId()).orElseThrow();
+        assertThat(reloaded.getStripeCustomerId()).isEqualTo("cus_first");
+        assertThat(reloaded.getPlan()).isEqualTo(Plan.PRO);
+    }
+
+    @Test
+    void allowsManyUsersWithoutStripeCustomer() {
+        newUser("a@example.com");
+        newUser("b@example.com");
+
+        assertThat(users.count()).isEqualTo(2);
+    }
+
+    @Test
     void rejectsDuplicateEmail() {
         newUser("a@example.com");
         User duplicate = new User();
