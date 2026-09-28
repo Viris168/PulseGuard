@@ -1,0 +1,8 @@
+# Caddy gets and renews the HTTPS certificate for this name by itself, and redirects http to
+# https. The name must point at this server before the first start.
+{$PULSEGUARD_DOMAIN} {
+	encode zstd gzip
+	# Caddy sends X-Forwarded-For and X-Forwarded-Proto, which the app trusts (see
+	# application-prod.yaml), so rate limits see real client IPs.
+	reverse_proxy app:8080
+}

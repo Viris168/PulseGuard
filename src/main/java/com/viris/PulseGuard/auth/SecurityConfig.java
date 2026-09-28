@@ -6,6 +6,7 @@ import com.viris.PulseGuard.auth.jwt.JwtAuthenticationFilter;
 import com.viris.PulseGuard.common.exception.RestAuthenticationEntryPoint;
 import com.viris.PulseGuard.auth.jwt.JwtProperties;
 import jakarta.servlet.DispatcherType;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -40,6 +41,14 @@ public class SecurityConfig {
                 && !(auth instanceof AnonymousAuthenticationToken)
                 && !(auth instanceof ApiKeyAuthenticationToken));
     };
+
+    static boolean isFrontendRequest(HttpServletRequest request) {
+        String path = request.getRequestURI().substring(request.getContextPath().length());
+        return HttpMethod.GET.matches(request.getMethod())
+                && !path.equals("/api") && !path.startsWith("/api/")
+                && !path.equals("/actuator") && !path.startsWith("/actuator/")
+                && !path.equals("/error") && !path.startsWith("/error/");
+    }
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -83,13 +92,17 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/status/*").permitAll()
                         // Heartbeat pings: the secret token in the path is the credential.
                         .requestMatchers("/api/ping/*").permitAll()
-                        .requestMatchers("/actuator/health").permitAll()
+                        .requestMatchers("/actuator/health", "/actuator/health/liveness",
+                                "/actuator/health/readiness").permitAll()
                         // After health: first match wins, so health stays public.
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
                         // Account security needs a real sign-in: a leaked API key must not mint
                         // more keys, change the password, or reach billing.
                         .requestMatchers("/api/api-keys", "/api/api-keys/**", "/api/auth/password",
                                 "/api/billing/**").access(SESSION_ONLY)
+                        // The frontend's own files and client-side routes (SpaConfig). Last, so
+                        // every rule above still applies; /error stays closed as a direct request.
+                        .requestMatchers(SecurityConfig::isFrontendRequest).permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(authenticationEntryPoint)
