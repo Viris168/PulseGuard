@@ -1,0 +1,48 @@
+# Production overrides, on top of application.yaml. Activated by SPRING_PROFILES_ACTIVE=prod
+# (the Dockerfile sets it). Secrets still come from environment variables; see DEPLOY.md.
+server:
+  # The host's proxy terminates TLS. Trust its X-Forwarded-For / X-Forwarded-Proto, so the
+  # login rate limiter and heartbeat pings see the real client IP (not one shared proxy IP),
+  # and requests count as https for HSTS. Tomcat only trusts these headers from private addresses.
+  forward-headers-strategy: native
+
+spring:
+  datasource:
+    hikari:
+      # Web requests, Quartz checks and the heartbeat sweep share it. Stay well under the
+      # database plan's connection limit, counting every running instance.
+      maximum-pool-size: 15
+  jpa:
+    show-sql: false
+  data:
+    redis:
+      # Managed Redis (Upstash, Render, Railway) usually requires TLS; the password binds from
+      # SPRING_DATA_REDIS_PASSWORD.
+      ssl:
+        enabled: ${SPRING_DATA_REDIS_SSL_ENABLED:false}
+  mail:
+    properties:
+      # Real SMTP (Resend, SendGrid) needs a login over TLS. Turned off only for local Mailpit.
+      mail.smtp.auth: ${PULSEGUARD_MAIL_SMTP_AUTH:true}
+      mail.smtp.starttls.enable: true
+      mail.smtp.starttls.required: ${PULSEGUARD_MAIL_STARTTLS_REQUIRED:true}
+
+management:
+  endpoint:
+    health:
+      # /actuator/health/liveness and /readiness for the host's checks.
+      probes:
+        enabled: true
+      show-details: never
+      show-components: never
+
+logging:
+  structured:
+    # One JSON object per line, which hosting log tools can search by field.
+    format:
+      console: ecs
+
+pulseguard:
+  heartbeat:
+    # No localhost default in production: ping URLs handed to users must be the public origin.
+    ping-base-url: ${PULSEGUARD_PING_BASE_URL}
