@@ -2,6 +2,7 @@ package com.viris.PulseGuard.notification;
 
 import com.viris.PulseGuard.auth.User;
 import com.viris.PulseGuard.billing.PlanLimits;
+import com.viris.PulseGuard.common.config.AppProperties;
 import com.viris.PulseGuard.enumeration.ChannelType;
 import com.viris.PulseGuard.enumeration.Plan;
 import com.viris.PulseGuard.enumeration.NotificationEventType;
@@ -25,6 +26,7 @@ import org.mockito.quality.Strictness;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.PlatformTransactionManager;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -73,7 +75,7 @@ class NotificationServiceTest {
         when(slackSender.type()).thenReturn(ChannelType.SLACK);
         // A mock transaction manager: the callbacks run, transactions are simply no-ops.
         service = new NotificationService(incidentRepository, channelRepository, notificationRepository,
-                new AlertMessageFactory(), new PlanLimits(), List.of(emailSender, slackSender),
+                new AlertMessageFactory(new AppProperties(URI.create("https://app.example.com"))), new PlanLimits(), List.of(emailSender, slackSender),
                 mock(PlatformTransactionManager.class));
 
         owner = User.builder().id(USER_ID).email("owner@example.com").build();

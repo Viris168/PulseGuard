@@ -1,11 +1,14 @@
 package com.viris.PulseGuard.notification;
 
+import com.viris.PulseGuard.common.config.AppProperties;
+import com.viris.PulseGuard.enumeration.AlertLevel;
 import com.viris.PulseGuard.incident.Incident;
 import com.viris.PulseGuard.monitor.Monitor;
 import com.viris.PulseGuard.notification.dto.AlertMessage;
 import com.viris.PulseGuard.notification.dto.AlertMessage.Field;
 import org.junit.jupiter.api.Test;
 
+import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 
@@ -15,7 +18,7 @@ class AlertMessageFactoryTest {
 
     private static final Instant STARTED = Instant.parse("2026-09-27T03:12:45Z");
 
-    private final AlertMessageFactory factory = new AlertMessageFactory();
+    private final AlertMessageFactory factory = new AlertMessageFactory(new AppProperties(URI.create("https://app.example.com/")));
 
     private static Monitor monitor(String url) {
         Monitor monitor = new Monitor();
@@ -93,7 +96,7 @@ class AlertMessageFactoryTest {
         assertThat(message.fields()).containsExactly(
                 new Field("URL", "https://api.example.com/health"),
                 new Field("Cause", "TIMEOUT: No response"),
-                new Field("Since", "2026-09-27 03:12:45 UTC"));
+                new Field("Since", "2026-09-27 03:12:45 UTC", STARTED));
         assertThat(message.footer()).isEqualTo("You'll get another message when it recovers.");
     }
 
@@ -104,8 +107,8 @@ class AlertMessageFactoryTest {
         assertThat(message.fields()).containsExactly(
                 new Field("URL", "https://api.example.com/health"),
                 new Field("Down for", "14m 30s"),
-                new Field("From", "2026-09-27 03:12:45 UTC"),
-                new Field("To", "2026-09-27 03:27:15 UTC"));
+                new Field("From", "2026-09-27 03:12:45 UTC", STARTED),
+                new Field("To", "2026-09-27 03:27:15 UTC", STARTED.plusSeconds(870)));
         assertThat(message.footer()).isNull();
     }
 
@@ -121,6 +124,26 @@ class AlertMessageFactoryTest {
     @Test
     void testAlertHasNoFields() {
         assertThat(factory.test().fields()).isEmpty();
+        assertThat(factory.test().level()).isEqualTo(AlertLevel.INFO);
+        assertThat(factory.test().link()).isNull();
+    }
+
+    @Test
+    void incidentAlertsAreLevelledAndLinkToTheIncidentPage() {
+        Incident down = incident(null);
+        down.setId(42L);
+        Incident up = incident(STARTED.plusSeconds(60));
+        up.setId(42L);
+
+        assertThat(factory.opened(monitor, down).level()).isEqualTo(AlertLevel.CRITICAL);
+        assertThat(factory.opened(monitor, down).link()).isEqualTo("https://app.example.com/incidents/42");
+        assertThat(factory.resolved(monitor, up).level()).isEqualTo(AlertLevel.RESOLVED);
+        assertThat(factory.resolved(monitor, up).link()).isEqualTo("https://app.example.com/incidents/42");
+    }
+
+    @Test
+    void noLinkBeforeTheIncidentHasAnId() {
+        assertThat(factory.opened(monitor, incident(null)).link()).isNull();
     }
 
     @Test
