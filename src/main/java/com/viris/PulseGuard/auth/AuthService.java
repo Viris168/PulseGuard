@@ -1,5 +1,7 @@
 package com.viris.PulseGuard.auth;
 
+import com.viris.PulseGuard.apikey.ApiKeyRepository;
+import com.viris.PulseGuard.auth.account.EmailVerificationService;
 import com.viris.PulseGuard.auth.dto.AuthResponse;
 import com.viris.PulseGuard.auth.dto.UpdateProfileRequest;
 import com.viris.PulseGuard.auth.dto.ChangePasswordRequest;
@@ -13,6 +15,7 @@ import com.viris.PulseGuard.auth.jwt.UserMapper;
 import com.viris.PulseGuard.auth.security.LoginRateLimiter;
 import com.viris.PulseGuard.auth.security.TokenDenylist;
 import com.viris.PulseGuard.common.exception.EmailAlreadyUsedException;
+import com.viris.PulseGuard.common.exception.IncorrectPasswordException;
 import com.viris.PulseGuard.common.exception.InvalidCredentialsException;
 import com.viris.PulseGuard.common.exception.PasswordUnchangedException;
 import com.viris.PulseGuard.common.exception.TooManyAttemptsException;
@@ -43,6 +46,8 @@ public class AuthService {
     private final TokenDenylist denylist;
     private final LoginRateLimiter rateLimiter;
     private final NotificationChannelRepository channels;
+    private final EmailVerificationService emailVerification;
+    private final ApiKeyRepository apiKeys;
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
@@ -53,6 +58,8 @@ public class AuthService {
 
         User saved = users.save(UserMapper.toEntity(request, passwordEncoder.encode(request.password())));
         createDefaultEmailChannel(saved);
+        // Email alerts to this address wait until its owner clicks the link.
+        emailVerification.issue(saved);
         log.info("Registered user id={}", saved.getId());
 
         return issueTokens(UserPrincipal.from(saved), UserMapper.from(saved));
@@ -163,7 +170,8 @@ public class AuthService {
         User user = users.findById(principal.getUserId()).orElseThrow(InvalidCredentialsException::new);
 
         if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
-            throw new InvalidCredentialsException();
+            // Not InvalidCredentialsException: its 401 reads as "session expired" in the app.
+            throw new IncorrectPasswordException();
         }
         if (passwordEncoder.matches(request.newPassword(), user.getPasswordHash())) {
             throw new PasswordUnchangedException();
@@ -180,7 +188,9 @@ public class AuthService {
         //                   password (exactly what this feature exists to prevent)
         // Failing safe wins. Do not "fix" this to AFTER_COMMIT.
         denylist.revokeAllForUser(user.getId(), Instant.now(), jwtService.sessionRetention());
-        log.info("Password changed for user {}; all sessions revoked", user.getId());
+        // Keys are credentials too: if the password leaked, so may have anything made with it.
+        int keys = apiKeys.deleteAllForUser(user.getId());
+        log.info("Password changed for user {}; all sessions and {} API key(s) revoked", user.getId(), keys);
 
         return issueTokens(UserPrincipal.from(user), UserMapper.from(user));
     }

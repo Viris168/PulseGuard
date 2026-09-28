@@ -19,6 +19,11 @@ public interface ApiKeyRepository extends JpaRepository<ApiKey, Long> {
 
     long countByUserId(Long userId);
 
+    /** Revokes every key of an account at once; see the password change and reset. */
+    @Modifying
+    @Query("delete from ApiKey k where k.user.id = :userId")
+    int deleteAllForUser(@Param("userId") Long userId);
+
     boolean existsByUserIdAndNameIgnoreCase(Long userId, String name);
 
     /**

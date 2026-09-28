@@ -24,7 +24,7 @@ const CHANNEL_NAME: Record<ChannelType, string> = {
   TELEGRAM: 'Telegram',
   WEBHOOK: 'Webhook',
 }
-const ALL_CHANNELS: ChannelType[] = ['EMAIL', 'SLACK', 'SMS']
+const ALL_CHANNELS: ChannelType[] = ['EMAIL', 'SLACK']
 
 const longDate = new Intl.DateTimeFormat(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
 const formatLongDate = (iso: string) => longDate.format(new Date(iso))

@@ -10,6 +10,8 @@ export interface User {
   plan: Plan
   role: Role
   createdAt: string
+  /** False until the sign-up link is clicked; email alerts wait for it. */
+  emailVerified: boolean
 }
 
 // Mirrors auth/dto/AuthResponse

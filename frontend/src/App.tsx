@@ -3,7 +3,10 @@ import { AuthProvider } from './auth/AuthProvider'
 import { HomeRoute, RedirectIfAuthed, RequireAuth } from './auth/RouteGuards'
 import { AppLayout } from './components/layout/AppLayout'
 import { AuthLayout } from './components/layout/AuthLayout'
+import { EmailLinkPage } from './pages/auth/EmailLinkPage'
+import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage'
 import { LoginPage } from './pages/auth/LoginPage'
+import { ResetPasswordPage } from './pages/auth/ResetPasswordPage'
 import { SignupPage } from './pages/auth/SignupPage'
 import { SettingsPage } from './pages/settings/SettingsPage'
 import { BillingPage } from './pages/BillingPage'
@@ -29,7 +32,16 @@ export default function App() {
             <Route element={<AuthLayout />}>
               <Route path="login" element={<LoginPage />} />
               <Route path="signup" element={<SignupPage />} />
+              <Route path="forgot-password" element={<ForgotPasswordPage />} />
             </Route>
+          </Route>
+
+          {/* Reachable while signed in too: the emailed link often opens in a browser with a session. */}
+          <Route element={<AuthLayout />}>
+            <Route path="reset-password" element={<ResetPasswordPage />} />
+            <Route path="verify-email" element={<EmailLinkPage key="verify" mode="verify" />} />
+            <Route path="confirm-email" element={<EmailLinkPage key="change" mode="change" />} />
+            <Route path="confirm-channel" element={<EmailLinkPage key="channel" mode="channel" />} />
           </Route>
 
           {/* Public status pages: no session, no app chrome. */}

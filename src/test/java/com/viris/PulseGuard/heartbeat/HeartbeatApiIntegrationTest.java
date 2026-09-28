@@ -1,6 +1,7 @@
 package com.viris.PulseGuard.heartbeat;
 
 import com.viris.PulseGuard.auth.User;
+import com.viris.PulseGuard.common.TestAccounts;
 import com.viris.PulseGuard.auth.UserRepository;
 import com.viris.PulseGuard.auth.security.InMemoryLoginRateLimiter;
 import com.viris.PulseGuard.auth.security.InMemoryTokenDenylist;
@@ -106,6 +107,8 @@ class HeartbeatApiIntegrationTest {
     @Autowired
     IncidentRepository incidents;
     @Autowired
+    com.viris.PulseGuard.check.CheckRepository checks;
+    @Autowired
     SchedulerService schedulerService;
     @Autowired
     HeartbeatSweeper sweeper;
@@ -135,6 +138,8 @@ class HeartbeatApiIntegrationTest {
                                 """.formatted(email)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
+        TestAccounts.awaitVerificationEmail(mailSender, email);
+        TestAccounts.markVerified(users, email);
         return objectMapper.readTree(body).get("token").asString();
     }
 
@@ -214,7 +219,8 @@ class HeartbeatApiIntegrationTest {
         JsonNode created = createHeartbeat(alice);
 
         ping(created).andExpect(status().isOk()).andExpect(content().string("OK\n"));
-        mockMvc.perform(get(pingPath(created))).andExpect(status().isOk());
+        // GET and HEAD work too; these come within 10s of the first, so they are answered, not stored.
+        mockMvc.perform(get(pingPath(created))).andExpect(status().isOk()).andExpect(content().string("OK\n"));
         mockMvc.perform(head(pingPath(created))).andExpect(status().isOk());
 
         Monitor m = reload(created);
@@ -222,8 +228,8 @@ class HeartbeatApiIntegrationTest {
         assertThat(m.getPingDeadline()).isEqualTo(m.getLastCheckedAt().plusSeconds(3600 + 600));
         mockMvc.perform(get("/api/monitors/" + m.getId() + "/pings").header(HttpHeaders.AUTHORIZATION, alice))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(3))
-                .andExpect(jsonPath("$[2].sourceIp").value("203.0.113.7"));
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].sourceIp").value("203.0.113.7"));
     }
 
     @Test
@@ -360,5 +366,47 @@ class HeartbeatApiIntegrationTest {
 
         List<Monitor> mine = monitors.findAllByUserId(user.getId());
         assertThat(mine).singleElement().extracting(Monitor::getIntervalSeconds).isEqualTo(60);
+    }
+
+    /** Moves the last ping back in time, as if the job had pinged that long ago. */
+    private void lastPingedAgo(JsonNode monitor, Duration ago) {
+        Monitor m = reload(monitor);
+        m.setLastCheckedAt(Instant.now().minus(ago));
+        monitors.saveAndFlush(m);
+    }
+
+    @Test
+    void aJobPingingFarMoreOftenThanItsPeriodDoesNotInflateUptime() throws Exception {
+        JsonNode created = createHeartbeat(alice); // expects a ping every hour
+        long id = created.get("id").asLong();
+        ping(created).andExpect(status().isOk());
+        lastPingedAgo(created, Duration.ofMinutes(1));
+        ping(created).andExpect(status().isOk());
+        lastPingedAgo(created, Duration.ofMinutes(1));
+        ping(created).andExpect(status().isOk());
+
+        // Every ping is in the log, but only the first counts as a check for uptime.
+        mockMvc.perform(get("/api/monitors/" + id + "/pings").header(HttpHeaders.AUTHORIZATION, alice))
+                .andExpect(jsonPath("$.length()").value(3));
+        assertThat(checks.findByMonitorIdOrderByCheckedAtDesc(id, org.springframework.data.domain.PageRequest.of(0, 10)))
+                .hasSize(1);
+
+        lastPingedAgo(created, Duration.ofMinutes(31)); // over half the period
+        ping(created).andExpect(status().isOk());
+        assertThat(checks.findByMonitorIdOrderByCheckedAtDesc(id, org.springframework.data.domain.PageRequest.of(0, 10)))
+                .hasSize(2);
+    }
+
+    @Test
+    void thePingThatEndsAnOutageIsNeverSkipped() throws Exception {
+        JsonNode created = createHeartbeat(alice);
+        ping(created).andExpect(status().isOk());
+        expireDeadline(created);
+        sweeper.sweep(Instant.now());
+        assertThat(reload(created).getState()).isEqualTo(MonitorState.DOWN);
+
+        ping(created).andExpect(status().isOk()); // seconds after the last one, but it ends the outage
+
+        assertThat(reload(created).getState()).isEqualTo(MonitorState.UP);
     }
 }

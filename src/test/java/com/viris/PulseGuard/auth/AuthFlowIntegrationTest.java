@@ -274,12 +274,17 @@ class AuthFlowIntegrationTest {
 
     @Test
     void changingThePasswordRequiresTheCurrentOne() throws Exception {
+        // A 400 on the field, not a 401: the app reads any 401 as "signed out".
         mockMvc.perform(post("/api/auth/password")
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"currentPassword":"wrong","newPassword":"brand-new-password"}"""))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors.currentPassword").value("Current password is incorrect"));
+        // Still signed in.
+        mockMvc.perform(get("/api/auth/me").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk());
     }
 
     @Test

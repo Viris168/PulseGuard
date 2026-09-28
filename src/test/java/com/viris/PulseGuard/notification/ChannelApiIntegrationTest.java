@@ -1,6 +1,7 @@
 package com.viris.PulseGuard.notification;
 
 import com.viris.PulseGuard.auth.User;
+import com.viris.PulseGuard.common.TestAccounts;
 import com.viris.PulseGuard.auth.UserRepository;
 import com.viris.PulseGuard.auth.security.InMemoryLoginRateLimiter;
 import com.viris.PulseGuard.auth.security.InMemoryTokenDenylist;
@@ -90,6 +91,13 @@ class ChannelApiIntegrationTest {
             return new InMemoryLoginRateLimiter(5, 20);
         }
 
+        /** Channel confirmation emails: not what these tests limit (Redis may not even be running). */
+        @Bean
+        @Primary
+        com.viris.PulseGuard.auth.account.EmailSendThrottle emailThrottle() {
+            return (purpose, email, ip) -> true;
+        }
+
         @Bean
         @Primary
         TestAlertThrottle testAlertThrottle() {
@@ -141,6 +149,8 @@ class ChannelApiIntegrationTest {
                                 """.formatted(email)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
+        TestAccounts.awaitVerificationEmail(mailSender, email);
+        TestAccounts.markVerified(users, email);
         return objectMapper.readTree(body).get("token").asString();
     }
 
@@ -288,7 +298,9 @@ class ChannelApiIntegrationTest {
 
         assertThat(channels.findById(aliceChannel)).get()
                 .extracting(NotificationChannel::isEnabled).isEqualTo(true);
-        verify(mailSender, never()).send(any(SimpleMailMessage.class));
+        // Creating the channel emailed team@ a confirmation link; Bob's test attempt sent nothing.
+        verify(mailSender, never()).send(org.mockito.ArgumentMatchers.<SimpleMailMessage>argThat(
+                m -> m.getSubject() != null && m.getSubject().contains("Test alert")));
     }
 
     @Test
@@ -357,12 +369,69 @@ class ChannelApiIntegrationTest {
     }
 
     @Test
-    void testingAChannelTypeWithNoSenderSaysSo() throws Exception {
+    void noPlanSellsSmsWhileNothingCanSendIt() throws Exception {
         setPlan("alice@example.com", Plan.BUSINESS);
-        long sms = createId(alice, "SMS", "+85512345678");
 
-        mockMvc.perform(post("/api/channels/" + sms + "/test").header(HttpHeaders.AUTHORIZATION, alice))
+        create(alice, "SMS", "+85512345678")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("The BUSINESS plan does not include SMS alerts."));
+    }
+
+    // ── Confirming email channels ──
+
+    private String confirmationToken(String address) {
+        org.mockito.ArgumentCaptor<SimpleMailMessage> mail = org.mockito.ArgumentCaptor.forClass(SimpleMailMessage.class);
+        verify(mailSender, org.mockito.Mockito.timeout(5000).atLeast(1)).send(mail.capture());
+        String text = mail.getAllValues().stream()
+                .filter(m -> "Confirm PulseGuard alerts to this address".equals(m.getSubject())
+                        && java.util.Arrays.asList(m.getTo()).contains(address))
+                .reduce((a, b) -> b).orElseThrow().getText();
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\?token=([A-Za-z0-9_-]+)").matcher(text);
+        assertThat(m.find()).isTrue();
+        return m.group(1);
+    }
+
+    @Test
+    void anotherAddressGetsNoAlertsUntilItConfirms() throws Exception {
+        long id = createId(alice, "EMAIL", "team@example.com");
+        mockMvc.perform(get("/api/channels").header(HttpHeaders.AUTHORIZATION, alice))
+                .andExpect(jsonPath("$[1].awaitingConfirmation").value(true))
+                .andExpect(jsonPath("$[0].awaitingConfirmation").value(false)); // alice's own, verified address
+        mockMvc.perform(post("/api/channels/" + id + "/test").header(HttpHeaders.AUTHORIZATION, alice))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("SMS alerts can't be delivered yet."));
+                .andExpect(jsonPath("$.message").value(
+                        "This address hasn't confirmed yet. We emailed it a link; alerts start once it's used."));
+
+        String token = confirmationToken("team@example.com");
+        mockMvc.perform(post("/api/channels/confirm").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":\"" + token + "\"}"))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/channels").header(HttpHeaders.AUTHORIZATION, alice))
+                .andExpect(jsonPath("$[1].awaitingConfirmation").value(false));
+        mockMvc.perform(post("/api/channels/" + id + "/test").header(HttpHeaders.AUTHORIZATION, alice))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void theAccountsOwnVerifiedAddressNeedsNoConfirmation() throws Exception {
+        mockMvc.perform(get("/api/channels").header(HttpHeaders.AUTHORIZATION, alice))
+                .andExpect(jsonPath("$[0].target").value("alice@example.com"))
+                .andExpect(jsonPath("$[0].awaitingConfirmation").value(false));
+        mockMvc.perform(post("/api/channels/" + defaultEmailChannel("alice@example.com") + "/resend-confirmation")
+                        .header(HttpHeaders.AUTHORIZATION, alice))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void aConfirmationLinkWorksOnce() throws Exception {
+        createId(alice, "EMAIL", "team@example.com");
+        String token = confirmationToken("team@example.com");
+        String body = "{\"token\":\"" + token + "\"}";
+
+        mockMvc.perform(post("/api/channels/confirm").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(post("/api/channels/confirm").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest());
     }
 }

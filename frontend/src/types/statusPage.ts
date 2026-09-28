@@ -37,7 +37,6 @@ export interface PublicComponent {
 }
 
 export interface PublicIncident {
-  id: number
   componentName: string
   status: IncidentStatus
   /** Open, but checks are passing again (monitor RECOVERING). */

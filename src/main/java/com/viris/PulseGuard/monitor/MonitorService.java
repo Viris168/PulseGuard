@@ -1,5 +1,6 @@
 package com.viris.PulseGuard.monitor;
 
+import com.viris.PulseGuard.apikey.ApiKeyAuthenticationToken;
 import com.viris.PulseGuard.auth.User;
 import com.viris.PulseGuard.auth.UserRepository;
 import com.viris.PulseGuard.billing.PlanLimits;
@@ -25,6 +26,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -244,7 +246,12 @@ public class MonitorService {
     }
 
     private MonitorResponse toResponse(Monitor monitor) {
-        return MonitorResponse.from(monitor, pingUrls.of(monitor));
+        return MonitorResponse.from(monitor, pingUrls.of(monitor), callerUsesApiKey());
+    }
+
+    /** Request bodies are write-only for API keys, like secret header values are for everyone. */
+    private static boolean callerUsesApiKey() {
+        return SecurityContextHolder.getContext().getAuthentication() instanceof ApiKeyAuthenticationToken;
     }
 
     /**
@@ -277,8 +284,15 @@ public class MonitorService {
         monitor.setMethod(request.method());
         monitor.setExpectedStatuses(new ArrayList<>(request.statusesOrDefault()));
         monitor.setTimeoutMs(request.timeoutMs());
+        // Absent keeps the saved body (an API key never sees it, so cannot send it back); blank
+        // clears it. Only POST and PUT send one, so any other method drops it.
         String body = request.requestBody();
-        monitor.setRequestBody(body == null || body.isBlank() ? null : body);
+        boolean sendsBody = "POST".equals(request.method()) || "PUT".equals(request.method());
+        if (!sendsBody || (body != null && body.isBlank())) {
+            monitor.setRequestBody(null);
+        } else if (body != null) {
+            monitor.setRequestBody(body);
+        }
         monitor.setHeaders(mergeHeaders(monitor.getHeaders(), request.headersOrEmpty()));
     }
 

@@ -37,6 +37,15 @@ public class Notification {
     @Column(nullable = false, length = 20)
     private NotificationStatus status;
 
+    /** When the last attempt finished (sent or failed). */
     @Column(name = "sent_at", nullable = false)
     private Instant sentAt = Instant.now();
+
+    /** Sends tried so far, the first one included. */
+    @Column(nullable = false)
+    private int attempts = 1;
+
+    /** Set while a retry is due; null once the alert is sent or given up. */
+    @Column(name = "next_attempt_at")
+    private Instant nextAttemptAt;
 }

@@ -261,7 +261,7 @@ class StatusPageApiIntegrationTest {
 
         String body = publicPage("acme")
                 .andExpect(status().isOk())
-                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("public")))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("no-cache")))
                 .andExpect(jsonPath("$.title").value("Acme Status"))
                 .andExpect(jsonPath("$.overall").value("OPERATIONAL"))
                 .andExpect(jsonPath("$.components.length()").value(2))
@@ -271,6 +271,7 @@ class StatusPageApiIntegrationTest {
 
         // Internal names, URLs (with their secrets) and ids stay private.
         assertThat(body).doesNotContain("internal-api-prod", "internal.example.com", "s3cret", "monitorId");
+        assertThat(objectMapper.readTree(body).get("incidents").toString()).doesNotContain("\"id\"");
     }
 
     @Test

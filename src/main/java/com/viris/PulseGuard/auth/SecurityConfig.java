@@ -85,8 +85,12 @@ public class SecurityConfig {
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         // Only the unauthenticated entry points; /me and /logout need a token.
                         .requestMatchers(HttpMethod.POST,
-                                "/api/auth/register", "/api/auth/login", "/api/auth/refresh").permitAll()
+                                "/api/auth/register", "/api/auth/login", "/api/auth/refresh",
+                                "/api/auth/forgot-password", "/api/auth/reset-password",
+                                "/api/auth/verify-email", "/api/auth/confirm-email").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/stripe/webhook").permitAll()
+                        // Confirming an email alert channel, from the link sent to that address.
+                        .requestMatchers(HttpMethod.POST, "/api/channels/confirm").permitAll()
                         .requestMatchers("/status/**").permitAll()
                         // Public status page data; the SPA owns /status/{slug} itself.
                         .requestMatchers(HttpMethod.GET, "/api/status/*").permitAll()
@@ -99,7 +103,8 @@ public class SecurityConfig {
                         // Account security needs a real sign-in: a leaked API key must not mint
                         // more keys, change the password, or reach billing.
                         .requestMatchers("/api/api-keys", "/api/api-keys/**", "/api/auth/password",
-                                "/api/billing/**").access(SESSION_ONLY)
+                                "/api/auth/email", "/api/billing/**").access(SESSION_ONLY)
+                        .requestMatchers(HttpMethod.DELETE, "/api/auth/me").access(SESSION_ONLY)
                         // The frontend's own files and client-side routes (SpaConfig). Last, so
                         // every rule above still applies; /error stays closed as a direct request.
                         .requestMatchers(SecurityConfig::isFrontendRequest).permitAll()

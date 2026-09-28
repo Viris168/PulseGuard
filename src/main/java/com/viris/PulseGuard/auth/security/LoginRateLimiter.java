@@ -8,8 +8,8 @@ package com.viris.PulseGuard.auth.security;
  * source means an attacker only ever throttles themselves. A separate per-IP budget stops one
  * host spraying many accounts.
  * <p>
- * Implementations must <em>fail open</em>: if the backing store is unreachable, allow the attempt
- * rather than rejecting every login. BCrypt still makes guessing expensive.
+ * If the backing store is unreachable, implementations must neither reject every login nor
+ * stop limiting: they count per node in memory (LocalFixedWindow) until the store is back.
  */
 public interface LoginRateLimiter {
 

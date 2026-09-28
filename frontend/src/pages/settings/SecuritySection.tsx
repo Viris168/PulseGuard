@@ -1,11 +1,12 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { LogOut } from 'lucide-react'
-import { changePassword } from '../../api/auth'
+import { LogOut, Trash2 } from 'lucide-react'
+import { changePassword, deleteAccount } from '../../api/auth'
 import { ApiError } from '../../api/errors'
 import { useAuth } from '../../auth/authContext'
 import { Button } from '../../components/ui/Button'
 import { Field, PasswordInput } from '../../components/ui/Field'
+import { Modal } from '../../components/ui/Modal'
 import { readApiError } from '../auth/authForm'
 import { SettingsCard } from './SettingsCard'
 
@@ -53,10 +54,8 @@ export function SecuritySection() {
       setForm(EMPTY)
       setDone(true)
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        // The backend's generic credentials error; here we know which field it means.
-        setErrors({ currentPassword: 'Current password is incorrect' })
-      } else if (err instanceof ApiError && err.status === 400 && !Object.keys(err.fieldErrors).length) {
+      // A wrong current password comes back as a field error on currentPassword.
+      if (err instanceof ApiError && err.status === 400 && !Object.keys(err.fieldErrors).length) {
         setErrors({ newPassword: err.message })
       } else {
         const { fields, banner } = readApiError(err)
@@ -78,10 +77,10 @@ export function SecuritySection() {
     <div className="space-y-6">
       <SettingsCard
         title="Change password"
-        description="You'll stay signed in here. Every other device is signed out."
+        description="You'll stay signed in here. Every other device is signed out, and your API keys are revoked."
         onSubmit={onSubmit}
         error={banner}
-        success={done ? 'Password changed. Other devices were signed out.' : null}
+        success={done ? 'Password changed. Other devices were signed out and your API keys revoked.' : null}
         footer={
           <Button type="submit" loading={saving}>
             Update password
@@ -131,6 +130,84 @@ export function SecuritySection() {
           </Button>
         }
       />
+
+      <DeleteAccountCard />
     </div>
+  )
+}
+
+/** Cancels the subscription, then deletes the account and everything in it. */
+function DeleteAccountCard() {
+  const navigate = useNavigate()
+  const [open, setOpen] = useState(false)
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  function close() {
+    if (deleting) return
+    setOpen(false)
+    setPassword('')
+    setError(null)
+  }
+
+  async function confirm() {
+    if (!password) return setError('Enter your current password')
+    setDeleting(true)
+    setError(null)
+    try {
+      await deleteAccount(password)
+      navigate('/', { replace: true })
+    } catch (err) {
+      const { fields, banner } = readApiError(err)
+      setError(fields.currentPassword ?? banner ?? 'Could not delete the account')
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <>
+      <SettingsCard
+        title="Delete account"
+        description="Deletes your monitors, their history, incidents, alert channels, API keys and status page, and cancels your subscription straight away. This can't be undone."
+        footer={
+          <Button variant="danger" onClick={() => setOpen(true)}>
+            <Trash2 className="size-4" aria-hidden />
+            Delete account
+          </Button>
+        }
+      />
+      <Modal
+        open={open}
+        onClose={close}
+        title="Delete your account?"
+        footer={
+          <>
+            <Button variant="secondary" onClick={close} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={confirm} loading={deleting}>
+              Delete everything
+            </Button>
+          </>
+        }
+      >
+        <p>Everything in this account is removed for good, and any paid plan ends now with no further charges.</p>
+        <div className="mt-4">
+          <Field id="delete-password" label="Current password" error={error ?? undefined}>
+            <PasswordInput
+              id="delete-password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value)
+                setError(null)
+              }}
+              error={error ?? undefined}
+            />
+          </Field>
+        </div>
+      </Modal>
+    </>
   )
 }

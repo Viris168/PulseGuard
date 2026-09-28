@@ -186,7 +186,7 @@ export function PublicStatusPage() {
               ) : (
                 <ul className="mt-2 space-y-3">
                   {d.items.map((i) => (
-                    <li key={i.id}>
+                    <li key={`${i.componentName}-${i.startedAt}`}>
                       <p
                         className={cn(
                           'font-medium',

@@ -6,6 +6,7 @@ import com.stripe.model.Subscription;
 import com.stripe.model.SubscriptionItem;
 import com.stripe.net.RequestOptions;
 import com.stripe.param.CustomerCreateParams;
+import com.stripe.param.CustomerUpdateParams;
 import com.stripe.param.checkout.SessionCreateParams;
 import com.viris.PulseGuard.common.exception.PaymentProviderException;
 import org.slf4j.Logger;
@@ -82,6 +83,24 @@ public class StripeSdkGateway implements StripeGateway {
             return client.v1().billingPortal().sessions().create(params).getUrl();
         } catch (StripeException e) {
             throw failure("create portal session", e);
+        }
+    }
+
+    @Override
+    public void cancelSubscription(String subscriptionId) {
+        try {
+            client.v1().subscriptions().cancel(subscriptionId);
+        } catch (StripeException e) {
+            throw failure("cancel subscription " + subscriptionId, e);
+        }
+    }
+
+    @Override
+    public void updateCustomerEmail(String customerId, String email) {
+        try {
+            client.v1().customers().update(customerId, CustomerUpdateParams.builder().setEmail(email).build());
+        } catch (StripeException e) {
+            throw failure("update customer email " + customerId, e);
         }
     }
 

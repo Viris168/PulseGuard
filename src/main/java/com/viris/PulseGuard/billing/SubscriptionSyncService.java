@@ -2,6 +2,7 @@ package com.viris.PulseGuard.billing;
 
 import com.viris.PulseGuard.auth.User;
 import com.viris.PulseGuard.auth.UserRepository;
+import com.viris.PulseGuard.billing.repository.DeletedStripeCustomerRepository;
 import com.viris.PulseGuard.billing.repository.SubscriptionRepository;
 import com.viris.PulseGuard.billing.stripe.SubscriptionSnapshot;
 import com.viris.PulseGuard.common.exception.BillingSyncException;
@@ -29,19 +30,25 @@ public class SubscriptionSyncService {
     private final UserRepository userRepository;
     private final SubscriptionRepository subscriptionRepository;
     private final PlanChangeService planChangeService;
+    private final DeletedStripeCustomerRepository deletedCustomers;
     private final StripeProperties stripeProperties;
 
     public SubscriptionSyncService(UserRepository userRepository,
                                    SubscriptionRepository subscriptionRepository,
                                    PlanChangeService planChangeService,
-                                   StripeProperties stripeProperties) {
+                                   StripeProperties stripeProperties,
+                                   DeletedStripeCustomerRepository deletedCustomers) {
         this.userRepository = userRepository;
         this.subscriptionRepository = subscriptionRepository;
         this.planChangeService = planChangeService;
         this.stripeProperties = stripeProperties;
+        this.deletedCustomers = deletedCustomers;
     }
 
     /**
+     * Events for the customer of a deleted account are acknowledged and ignored: the account
+     * cancelled its subscription on the way out, and there is nothing left to sync.
+     *
      * @throws BillingSyncException     if no account has this customer, or a live subscription
      *                                  uses a price that is not configured. Both fail the webhook
      *                                  so Stripe retries once the data or config is fixed.
@@ -50,8 +57,14 @@ public class SubscriptionSyncService {
     @Transactional
     public void sync(SubscriptionSnapshot snapshot) {
         // Locked: concurrent events for this account wait here, then see what the first one wrote.
-        User user = userRepository.lockByStripeCustomerId(snapshot.customerId())
-                .orElseThrow(() -> BillingSyncException.unknownCustomer(snapshot.id(), snapshot.customerId()));
+        User user = userRepository.lockByStripeCustomerId(snapshot.customerId()).orElse(null);
+        if (user == null) {
+            if (snapshot.customerId() != null && deletedCustomers.existsById(snapshot.customerId())) {
+                log.info("Ignoring subscription {} event: its account was deleted", snapshot.id());
+                return;
+            }
+            throw BillingSyncException.unknownCustomer(snapshot.id(), snapshot.customerId());
+        }
         SubscriptionStatus status = SubscriptionStatus.fromStripe(snapshot.status());
         Optional<Plan> pricePlan = Optional.ofNullable(snapshot.priceId()).flatMap(stripeProperties::planForPrice);
         if (status.grantsPlan() && pricePlan.isEmpty()) {

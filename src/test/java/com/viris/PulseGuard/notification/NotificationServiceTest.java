@@ -29,6 +29,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import java.net.URI;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
@@ -76,9 +77,10 @@ class NotificationServiceTest {
         // A mock transaction manager: the callbacks run, transactions are simply no-ops.
         service = new NotificationService(incidentRepository, channelRepository, notificationRepository,
                 new AlertMessageFactory(new AppProperties(URI.create("https://app.example.com"))), new PlanLimits(), List.of(emailSender, slackSender),
-                mock(PlatformTransactionManager.class));
+                mock(PlatformTransactionManager.class),
+                new AlertRetryProperties(List.of(Duration.ofMinutes(1), Duration.ofMinutes(5)), Duration.ofSeconds(30)));
 
-        owner = User.builder().id(USER_ID).email("owner@example.com").build();
+        owner = User.builder().id(USER_ID).email("owner@example.com").emailVerifiedAt(java.time.Instant.now()).build();
         Monitor monitor = new Monitor();
         monitor.setUser(owner);
         monitor.setName("Payments API");
@@ -106,6 +108,7 @@ class NotificationServiceTest {
         channel.setId(id);
         channel.setType(type);
         channel.setTarget(target);
+        channel.setVerifiedAt(java.time.Instant.now()); // a confirmed address, as alerts require
         return channel;
     }
 
@@ -174,7 +177,7 @@ class NotificationServiceTest {
 
     @Test
     void skipsChannelTypesWithoutASender() {
-        owner.setPlan(Plan.BUSINESS); // SMS is on the plan, but nothing can send it yet
+        owner.setPlan(Plan.BUSINESS); // e.g. an SMS channel saved before SMS was taken off the plan
         userHasChannels(channel(12, ChannelType.SMS, "+85512345678"),
                 channel(10, ChannelType.EMAIL, "a@example.com"));
 

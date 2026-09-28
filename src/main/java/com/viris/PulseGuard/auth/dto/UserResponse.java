@@ -12,7 +12,8 @@ public record UserResponse(
         String email,
         Plan plan,
         Role role,
-        Instant createdAt
+        Instant createdAt,
+        boolean emailVerified
 ) {
 
 }

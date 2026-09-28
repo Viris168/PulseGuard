@@ -1,5 +1,6 @@
 package com.viris.PulseGuard.billing;
 
+import com.viris.PulseGuard.billing.repository.DeletedStripeCustomerRepository;
 import com.viris.PulseGuard.auth.User;
 import com.viris.PulseGuard.auth.UserRepository;
 import com.viris.PulseGuard.billing.repository.SubscriptionRepository;
@@ -24,6 +25,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -46,6 +48,8 @@ class SubscriptionSyncServiceTest {
     private SubscriptionRepository subscriptionRepository;
     @Mock
     private PlanChangeService planChangeService;
+    @Mock
+    private DeletedStripeCustomerRepository deletedCustomers;
 
     private SubscriptionSyncService service;
 
@@ -54,7 +58,8 @@ class SubscriptionSyncServiceTest {
         StripeProperties properties = new StripeProperties("sk_test", "whsec_test",
                 Map.of(Plan.PRO, "price_pro", Plan.BUSINESS, "price_business"),
                 URI.create("http://localhost:5173"), Duration.ofSeconds(5), Duration.ofSeconds(20), 0);
-        service = new SubscriptionSyncService(userRepository, subscriptionRepository, planChangeService, properties);
+        service = new SubscriptionSyncService(userRepository, subscriptionRepository, planChangeService, properties,
+                deletedCustomers);
         User user = User.builder().id(USER_ID).email("dara@example.com").plan(Plan.FREE).build();
         when(userRepository.lockByStripeCustomerId(CUSTOMER)).thenReturn(Optional.of(user));
         when(subscriptionRepository.findByUserId(USER_ID)).thenReturn(Optional.empty());
@@ -196,5 +201,24 @@ class SubscriptionSyncServiceTest {
         assertThatThrownBy(() -> service.sync(snapshot("hibernating", "price_pro")))
                 .isInstanceOf(IllegalArgumentException.class);
         verifyNoInteractions(planChangeService);
+    }
+
+    @Test
+    void eventsForADeletedAccountsCustomerAreAcknowledged() {
+        when(userRepository.lockByStripeCustomerId("cus_gone")).thenReturn(Optional.empty());
+        when(deletedCustomers.existsById("cus_gone")).thenReturn(true);
+        SubscriptionSnapshot cancelled = new SubscriptionSnapshot("sub_9", "cus_gone", "canceled", "price_pro", PERIOD_END, false);
+
+        assertThatCode(() -> service.sync(cancelled)).doesNotThrowAnyException();
+        verify(subscriptionRepository, never()).save(any());
+    }
+
+    @Test
+    void anyOtherUnknownCustomerStillFailsSoStripeRetries() {
+        when(userRepository.lockByStripeCustomerId("cus_new")).thenReturn(Optional.empty());
+        when(deletedCustomers.existsById("cus_new")).thenReturn(false);
+        SubscriptionSnapshot early = new SubscriptionSnapshot("sub_8", "cus_new", "active", "price_pro", PERIOD_END, false);
+
+        assertThatThrownBy(() -> service.sync(early)).isInstanceOf(BillingSyncException.class);
     }
 }

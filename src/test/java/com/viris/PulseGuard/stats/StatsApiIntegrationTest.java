@@ -136,8 +136,11 @@ class StatsApiIntegrationTest {
     @Test
     void cardsAreComputedExactlyInPostgres() throws Exception {
         // 11 passing checks at 100, 110, ..., 200 ms, and one fast failure (a 500 in 5 ms).
+        // 59 minutes back at most, not 60: the last hourly bar starts an hour before the
+        // server's own "now", truncated to the second, so a check at exactly the test's
+        // now - 60m fell into the previous bar whenever the request crossed a second boundary.
         for (int i = 0; i <= 10; i++) {
-            check(CheckResult.UP, 100 + i * 10, now.minus(Duration.ofMinutes(60 - i)));
+            check(CheckResult.UP, 100 + i * 10, now.minus(Duration.ofMinutes(59 - i)));
         }
         check(CheckResult.DOWN, 5, now.minus(Duration.ofMinutes(30)));
 

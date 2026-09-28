@@ -1,6 +1,7 @@
 package com.viris.PulseGuard.notification;
 
 import com.viris.PulseGuard.auth.UserPrincipal;
+import com.viris.PulseGuard.auth.dto.TokenRequest;
 import com.viris.PulseGuard.notification.dto.ChannelRequest;
 import com.viris.PulseGuard.notification.dto.ChannelResponse;
 import com.viris.PulseGuard.notification.dto.ChannelUpdateRequest;
@@ -32,6 +33,7 @@ import java.util.List;
 public class ChannelController {
 
     private final ChannelService channelService;
+    private final ChannelConfirmationService confirmationService;
 
     @GetMapping
     public List<ChannelResponse> list(@AuthenticationPrincipal UserPrincipal principal) {
@@ -60,6 +62,19 @@ public class ChannelController {
     public void delete(@AuthenticationPrincipal UserPrincipal principal,
                        @PathVariable Long id) {
         channelService.deleteChannel(principal.getUserId(), id);
+    }
+
+    @PostMapping("/{id}/resend-confirmation")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public void resendConfirmation(@AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id) {
+        channelService.resendConfirmation(principal.getUserId(), id);
+    }
+
+    /** From the link emailed to the channel's address; open to anyone holding it (SecurityConfig). */
+    @PostMapping("/confirm")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void confirm(@Valid @RequestBody TokenRequest request) {
+        confirmationService.confirm(request.token());
     }
 
     @PostMapping("/{id}/test")

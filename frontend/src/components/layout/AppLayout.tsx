@@ -11,6 +11,7 @@ import { AskAiPanel } from '../ai/AskAiPanel'
 import { AskAiButton, SupportMenu } from './HeaderActions'
 import { Logo } from './Logo'
 import { ProfileMenu } from './ProfileMenu'
+import { VerifyEmailBanner } from './VerifyEmailBanner'
 
 const nav: { to: string; label: string; icon: LucideIcon }[] = [
   { to: '/monitors', label: 'Monitors', icon: Activity },
@@ -172,6 +173,8 @@ export function AppLayout() {
             <ProfileMenu user={user} onSignOut={signOut} />
           </div>
         </header>
+
+        {user && !user.emailVerified && <VerifyEmailBanner user={user} />}
 
         <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:py-8">
           <Outlet />

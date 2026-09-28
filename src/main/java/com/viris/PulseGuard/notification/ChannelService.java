@@ -50,6 +50,7 @@ public class ChannelService {
     private final PlanLimits planLimits;
     private final AlertMessageFactory messages;
     private final Map<ChannelType, NotificationSender> senders;
+    private final ChannelConfirmationService confirmations;
     private final TestAlertThrottle testThrottle;
 
     public ChannelService(NotificationChannelRepository channelRepository,
@@ -57,7 +58,8 @@ public class ChannelService {
                           PlanLimits planLimits,
                           AlertMessageFactory messages,
                           List<NotificationSender> senders,
-                          TestAlertThrottle testThrottle) {
+                          TestAlertThrottle testThrottle,
+                          ChannelConfirmationService confirmations) {
         this.channelRepository = channelRepository;
         this.userRepository = userRepository;
         this.planLimits = planLimits;
@@ -65,12 +67,14 @@ public class ChannelService {
         this.senders = senders.stream()
                 .collect(Collectors.toMap(NotificationSender::type, Function.identity()));
         this.testThrottle = testThrottle;
+        this.confirmations = confirmations;
     }
 
     @Transactional(readOnly = true)
     public List<ChannelResponse> listChannels(Long userId) {
+        User owner = requireUser(userId);
         return channelRepository.findAllByUserIdOrderByIdAsc(userId).stream()
-                .map(ChannelResponse::from)
+                .map(channel -> ChannelResponse.from(channel, owner))
                 .toList();
     }
 
@@ -92,9 +96,13 @@ public class ChannelService {
         channel.setType(request.type());
         channel.setTarget(target);
         channelRepository.save(channel);
+        // Anyone else's address has to say yes before alerts go there.
+        if (!channel.confirmedFor(user)) {
+            confirmations.request(user, target);
+        }
 
         log.info("Created {} channelId={} for userId={}", channel.getType(), channel.getId(), userId);
-        return ChannelResponse.from(channel);
+        return ChannelResponse.from(channel, user);
     }
 
     @Transactional
@@ -106,7 +114,19 @@ public class ChannelService {
         }
         channel.setEnabled(enabled);
         log.info("{} channelId={} for userId={}", enabled ? "Enabled" : "Disabled", channelId, userId);
-        return ChannelResponse.from(channel);
+        return ChannelResponse.from(channel, channel.getUser());
+    }
+
+    /** Sends the confirmation link again, for an email channel still waiting on it. */
+    @Transactional
+    public void resendConfirmation(Long userId, Long channelId) {
+        NotificationChannel channel = requireOwnedChannel(userId, channelId);
+        User owner = requireUser(userId);
+        if (channel.confirmedFor(owner) || channel.getTarget().equals(owner.getEmail())) {
+            // Confirmed already, or the owner's own address (the account verification covers it).
+            throw ChannelRuleException.alreadyConfirmed();
+        }
+        confirmations.request(owner, channel.getTarget());
     }
 
     @Transactional
@@ -127,7 +147,13 @@ public class ChannelService {
      */
     public void sendTestAlert(Long userId, Long channelId) {
         NotificationChannel channel = requireOwnedChannel(userId, channelId);
-        requireAllowedType(requireUser(userId).getPlan(), channel.getType());
+        User owner = requireUser(userId);
+        requireAllowedType(owner.getPlan(), channel.getType());
+        if (!channel.confirmedFor(owner)) {
+            throw channel.getTarget().equals(owner.getEmail())
+                    ? ChannelRuleException.emailNotVerified()
+                    : ChannelRuleException.notConfirmed();
+        }
         NotificationSender sender = senders.get(channel.getType());
         if (sender == null) {
             throw ChannelRuleException.unsupported(label(channel.getType()));

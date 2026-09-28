@@ -15,7 +15,7 @@ import java.util.List;
  * @param expectedStatuses HTTP: any of these counts as up
  * @param graceSeconds     heartbeat only
  * @param headers          HTTP only; null or empty for none
- * @param requestBody      HTTP POST and PUT only; blank for none
+ * @param requestBody      HTTP POST and PUT only; absent keeps the saved body, blank clears it
  */
 @ValidMonitorRequest
 public record MonitorRequest(

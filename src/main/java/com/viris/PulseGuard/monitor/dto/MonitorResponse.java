@@ -24,10 +24,15 @@ public record MonitorResponse(
         Integer graceSeconds,
         String pingUrl,
         List<HeaderView> headers,
-        String requestBody
+        String requestBody,
+        boolean requestBodyHidden
 ) {
-    /** @param pingUrl the heartbeat's secret URL (PingUrls), null for HTTP monitors */
-    public static MonitorResponse from(Monitor monitor, String pingUrl) {
+    /**
+     * @param pingUrl  the heartbeat's secret URL (PingUrls), null for HTTP monitors
+     * @param hideBody true for a caller using an API key: a body can carry credentials, and
+     *                 unlike a signed-in owner, a script has no need to read it back
+     */
+    public static MonitorResponse from(Monitor monitor, String pingUrl, boolean hideBody) {
         return new MonitorResponse(
                 monitor.getId(),
                 monitor.getName(),
@@ -45,7 +50,8 @@ public record MonitorResponse(
                 monitor.getGraceSeconds(),
                 pingUrl,
                 monitor.getHeaders().stream().map(HeaderView::from).toList(),
-                monitor.getRequestBody()
+                hideBody ? null : monitor.getRequestBody(),
+                hideBody && monitor.getRequestBody() != null
         );
     }
 }
