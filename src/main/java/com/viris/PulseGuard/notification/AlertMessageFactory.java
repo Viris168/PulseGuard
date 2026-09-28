@@ -1,5 +1,7 @@
 package com.viris.PulseGuard.notification;
 
+import com.viris.PulseGuard.common.config.AppProperties;
+import com.viris.PulseGuard.enumeration.AlertLevel;
 import com.viris.PulseGuard.incident.Incident;
 import com.viris.PulseGuard.monitor.Monitor;
 import com.viris.PulseGuard.notification.dto.AlertMessage;
@@ -20,6 +22,12 @@ import java.util.List;
 @Component
 public class AlertMessageFactory {
 
+    private final AppProperties app;
+
+    public AlertMessageFactory(AppProperties app) {
+        this.app = app;
+    }
+
     private static final DateTimeFormatter TIME =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss 'UTC'").withZone(ZoneOffset.UTC);
 
@@ -38,9 +46,9 @@ public class AlertMessageFactory {
         List<Field> fields = List.of(
                 new Field("URL", url),
                 new Field("Cause", incident.getCause()),
-                new Field("Since", since));
-        return new AlertMessage("🔴 DOWN: " + monitor.getName(), body, fields,
-                "You'll get another message when it recovers.");
+                new Field("Since", since, incident.getStartedAt()));
+        return new AlertMessage("🔴 DOWN: " + monitor.getName(), body, AlertLevel.CRITICAL, fields,
+                "You'll get another message when it recovers.", incidentLink(incident));
     }
 
     public AlertMessage resolved(Monitor monitor, Incident incident) {
@@ -59,9 +67,10 @@ public class AlertMessageFactory {
         List<Field> fields = List.of(
                 new Field("URL", url),
                 new Field("Down for", downFor),
-                new Field("From", from),
-                new Field("To", to));
-        return new AlertMessage("✅ RECOVERED: " + monitor.getName(), body, fields, null);
+                new Field("From", from, incident.getStartedAt()),
+                new Field("To", to, incident.getResolvedAt()));
+        return new AlertMessage("✅ RECOVERED: " + monitor.getName(), body, AlertLevel.RESOLVED, fields, null,
+                incidentLink(incident));
     }
 
     /** What "Send test" delivers: says plainly that nothing is wrong. */
@@ -72,6 +81,11 @@ public class AlertMessageFactory {
                 If you can read this, alerts for your monitors will reach you here.
                 """;
         return new AlertMessage("🔔 Test alert from PulseGuard", body);
+    }
+
+    /** The incident's page in the frontend; null before the incident has an id. */
+    private String incidentLink(Incident incident) {
+        return incident.getId() == null ? null : app.url("/incidents/" + incident.getId());
     }
 
     private static String format(Instant instant) {

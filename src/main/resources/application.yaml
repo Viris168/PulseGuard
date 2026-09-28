@@ -82,6 +82,9 @@ management:
       enabled: false
 
 pulseguard:
+  app:
+    # The frontend; alerts link to its pages. Same value as the Stripe redirects use.
+    base-url: ${PULSEGUARD_APP_BASE_URL}
   jwt:
     # Base64-encoded HMAC-SHA key, >= 256 bits. Generate: openssl rand -base64 48
     secret: ${PULSEGUARD_JWT_SECRET}

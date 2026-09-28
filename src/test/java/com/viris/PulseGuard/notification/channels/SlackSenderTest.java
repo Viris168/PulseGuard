@@ -1,5 +1,6 @@
 package com.viris.PulseGuard.notification.channels;
 
+import com.viris.PulseGuard.enumeration.AlertLevel;
 import com.viris.PulseGuard.enumeration.ChannelType;
 import com.viris.PulseGuard.notification.dto.AlertMessage;
 import com.viris.PulseGuard.notification.dto.AlertMessage.Field;
@@ -15,11 +16,14 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
@@ -44,11 +48,11 @@ class SlackSenderTest {
     }
 
     private static AlertMessage downAlert(String name) {
-        return new AlertMessage("🔴 DOWN: " + name, "email body",
+        return new AlertMessage("🔴 DOWN: " + name, "email body", AlertLevel.CRITICAL,
                 List.of(new Field("URL", "https://api.example.com/health"),
                         new Field("Cause", "HTTP 500"),
                         new Field("Since", "2026-09-28 02:13:00 UTC")),
-                "You'll get another message when it recovers.");
+                "You'll get another message when it recovers.", null);
     }
 
     @Test
@@ -62,17 +66,18 @@ class SlackSenderTest {
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.text").value("🔴 DOWN: Shop API"))
-                .andExpect(jsonPath("$.blocks", hasSize(3)))
-                .andExpect(jsonPath("$.blocks[0].type").value("header"))
-                .andExpect(jsonPath("$.blocks[0].text.type").value("plain_text"))
-                .andExpect(jsonPath("$.blocks[0].text.text").value("🔴 DOWN: Shop API"))
-                .andExpect(jsonPath("$.blocks[1].type").value("section"))
-                .andExpect(jsonPath("$.blocks[1].fields", hasSize(3)))
-                .andExpect(jsonPath("$.blocks[1].fields[0].type").value("mrkdwn"))
-                .andExpect(jsonPath("$.blocks[1].fields[0].text").value("*URL*\nhttps://api.example.com/health"))
-                .andExpect(jsonPath("$.blocks[1].fields[1].text").value("*Cause*\nHTTP 500"))
-                .andExpect(jsonPath("$.blocks[2].type").value("context"))
-                .andExpect(jsonPath("$.blocks[2].elements[0].text")
+                .andExpect(jsonPath("$.attachments[0].blocks", hasSize(3)))
+                .andExpect(jsonPath("$.attachments[0].blocks[0].type").value("header"))
+                .andExpect(jsonPath("$.attachments[0].blocks[0].text.type").value("plain_text"))
+                .andExpect(jsonPath("$.attachments[0].blocks[0].text.text").value("🔴 DOWN: Shop API"))
+                .andExpect(jsonPath("$.attachments[0].blocks[1].type").value("section"))
+                .andExpect(jsonPath("$.attachments[0].blocks[1].fields", hasSize(3)))
+                .andExpect(jsonPath("$.attachments[0].blocks[1].fields[0].type").value("mrkdwn"))
+                .andExpect(jsonPath("$.attachments[0].blocks[1].fields[0].text").value("*URL*\nhttps://api.example.com/health"))
+                .andExpect(jsonPath("$.attachments[0].blocks[1].fields[1].text").value("*Cause*\nHTTP 500"))
+                .andExpect(jsonPath("$.attachments[0].color").value("#E01E5A"))
+                .andExpect(jsonPath("$.attachments[0].blocks[2].type").value("context"))
+                .andExpect(jsonPath("$.attachments[0].blocks[2].elements[0].text")
                         .value("PulseGuard · You'll get another message when it recovers."))
                 .andRespond(withSuccess("ok", MediaType.TEXT_PLAIN));
 
@@ -84,12 +89,12 @@ class SlackSenderTest {
     @Test
     void userTextCannotPingTheChannelOrFakeALink() {
         AlertMessage message = new AlertMessage("🔴 DOWN: <!channel> & <https://evil.example|Open>", "b",
-                List.of(new Field("Cause", "<!here> <@U123> & more")), null);
+                AlertLevel.CRITICAL, List.of(new Field("Cause", "<!here> <@U123> & more")), null, null);
         slack.expect(requestTo(WEBHOOK))
                 .andExpect(jsonPath("$.text").value("🔴 DOWN: &lt;!channel&gt; &amp; &lt;https://evil.example|Open&gt;"))
-                .andExpect(jsonPath("$.blocks[1].fields[0].text").value("*Cause*\n&lt;!here&gt; &lt;@U123&gt; &amp; more"))
+                .andExpect(jsonPath("$.attachments[0].blocks[1].fields[0].text").value("*Cause*\n&lt;!here&gt; &lt;@U123&gt; &amp; more"))
                 // plain_text is never parsed by Slack, so the header shows the name as typed.
-                .andExpect(jsonPath("$.blocks[0].text.text").value("🔴 DOWN: <!channel> & <https://evil.example|Open>"))
+                .andExpect(jsonPath("$.attachments[0].blocks[0].text.text").value("🔴 DOWN: <!channel> & <https://evil.example|Open>"))
                 .andRespond(withSuccess("ok", MediaType.TEXT_PLAIN));
 
         sender.send(WEBHOOK, message);
@@ -100,9 +105,9 @@ class SlackSenderTest {
     @Test
     void messageWithoutFieldsIsSentAsOneEscapedSection() {
         slack.expect(requestTo(WEBHOOK))
-                .andExpect(jsonPath("$.blocks[1].type").value("section"))
-                .andExpect(jsonPath("$.blocks[1].text.text").value("Nothing is down &amp; all is well."))
-                .andExpect(jsonPath("$.blocks[2].elements[0].text").value("PulseGuard"))
+                .andExpect(jsonPath("$.attachments[0].blocks[1].type").value("section"))
+                .andExpect(jsonPath("$.attachments[0].blocks[1].text.text").value("Nothing is down &amp; all is well."))
+                .andExpect(jsonPath("$.attachments[0].blocks[2].elements[0].text").value("PulseGuard"))
                 .andRespond(withSuccess("ok", MediaType.TEXT_PLAIN));
 
         sender.send(WEBHOOK, new AlertMessage("🔔 Test alert from PulseGuard", "Nothing is down & all is well."));
@@ -114,10 +119,77 @@ class SlackSenderTest {
     void cutsTextToSlacksBlockLimits() {
         String longName = "x".repeat(400);
         slack.expect(requestTo(WEBHOOK))
-                .andExpect(jsonPath("$.blocks[0].text.text").value("🔴 DOWN: " + "x".repeat(150 - 10) + "…"))
+                .andExpect(jsonPath("$.attachments[0].blocks[0].text.text").value("🔴 DOWN: " + "x".repeat(150 - 10) + "…"))
                 .andRespond(withSuccess("ok", MediaType.TEXT_PLAIN));
 
         sender.send(WEBHOOK, downAlert(longName));
+
+        slack.verify();
+    }
+
+    @Test
+    void colourBarFollowsTheAlertLevel() {
+        assertThat(SlackSender.color(AlertLevel.CRITICAL)).isEqualTo("#E01E5A");
+        assertThat(SlackSender.color(AlertLevel.RESOLVED)).isEqualTo("#2EB67D");
+        assertThat(SlackSender.color(AlertLevel.INFO)).isEqualTo("#6B7280");
+    }
+
+    @Test
+    void recoveryIsGreenWithAButtonToTheIncident() {
+        AlertMessage message = new AlertMessage("✅ RECOVERED: Shop API", "b", AlertLevel.RESOLVED,
+                List.of(new Field("Down for", "14m 30s")), null, "https://app.pulseguard.test/incidents/42");
+        slack.expect(requestTo(WEBHOOK))
+                .andExpect(jsonPath("$.attachments[0].color").value("#2EB67D"))
+                .andExpect(jsonPath("$.attachments[0].blocks", hasSize(4)))
+                .andExpect(jsonPath("$.attachments[0].blocks[2].type").value("actions"))
+                .andExpect(jsonPath("$.attachments[0].blocks[2].elements[0].type").value("button"))
+                .andExpect(jsonPath("$.attachments[0].blocks[2].elements[0].text.text").value("Open in PulseGuard"))
+                .andExpect(jsonPath("$.attachments[0].blocks[2].elements[0].url").value("https://app.pulseguard.test/incidents/42"))
+                .andRespond(withSuccess("ok", MediaType.TEXT_PLAIN));
+
+        sender.send(WEBHOOK, message);
+
+        slack.verify();
+    }
+
+    @Test
+    void noButtonWithoutASafeLink() {
+        AlertMessage message = new AlertMessage("🔴 DOWN: Shop API", "b", AlertLevel.CRITICAL,
+                List.of(new Field("Cause", "HTTP 500")), null, "javascript:alert(1)");
+        slack.expect(requestTo(WEBHOOK))
+                .andExpect(jsonPath("$.attachments[0].blocks", hasSize(3)))
+                .andExpect(jsonPath("$.attachments[0].blocks[*].type", not(hasItem("actions"))))
+                .andRespond(withSuccess("ok", MediaType.TEXT_PLAIN));
+
+        sender.send(WEBHOOK, message);
+
+        slack.verify();
+    }
+
+    @Test
+    void timesAreShownInEachReadersTimeZoneWithUtcAsFallback() {
+        Instant since = Instant.parse("2026-09-28T02:13:00Z");
+        AlertMessage message = new AlertMessage("🔴 DOWN: Shop API", "b", AlertLevel.CRITICAL,
+                List.of(new Field("Since", "2026-09-28 02:13:00 UTC", since)), null, null);
+        slack.expect(requestTo(WEBHOOK))
+                .andExpect(jsonPath("$.attachments[0].blocks[1].fields[0].text").value(
+                        "*Since*\n<!date^" + since.getEpochSecond()
+                                + "^{date_short_pretty} at {time_secs}|2026-09-28 02:13:00 UTC>"))
+                .andRespond(withSuccess("ok", MediaType.TEXT_PLAIN));
+
+        sender.send(WEBHOOK, message);
+
+        slack.verify();
+    }
+
+    @Test
+    void testAlertIsGreyAndHasNoButton() {
+        slack.expect(requestTo(WEBHOOK))
+                .andExpect(jsonPath("$.attachments[0].color").value("#6B7280"))
+                .andExpect(jsonPath("$.attachments[0].blocks", hasSize(3)))
+                .andRespond(withSuccess("ok", MediaType.TEXT_PLAIN));
+
+        sender.send(WEBHOOK, new AlertMessage("🔔 Test alert from PulseGuard", "Nothing is down."));
 
         slack.verify();
     }
@@ -127,7 +199,7 @@ class SlackSenderTest {
         // 148 x's then an emoji: the cut at 149 would land between its two halves.
         AlertMessage message = new AlertMessage("x".repeat(148) + "🔴🔴🔴", "b");
         slack.expect(requestTo(WEBHOOK))
-                .andExpect(jsonPath("$.blocks[0].text.text").value("x".repeat(148) + "…"))
+                .andExpect(jsonPath("$.attachments[0].blocks[0].text.text").value("x".repeat(148) + "…"))
                 .andRespond(withSuccess("ok", MediaType.TEXT_PLAIN));
 
         sender.send(WEBHOOK, message);

@@ -189,11 +189,14 @@ class SlackAlertFlowIntegrationTest {
         Long monitorId = monitorFor(owner);
         slack.expect(ExpectedCount.once(), requestTo(WEBHOOK))
                 .andExpect(jsonPath("$.text").value("🔴 DOWN: Payments API"))
-                .andExpect(jsonPath("$.blocks[1].fields[1].text").value("*Cause*\nSTATUS_MISMATCH: Expected 200 but got 500"))
+                .andExpect(jsonPath("$.attachments[0].color").value("#E01E5A"))
+                .andExpect(jsonPath("$.attachments[0].blocks[1].fields[1].text").value("*Cause*\nSTATUS_MISMATCH: Expected 200 but got 500"))
+                .andExpect(jsonPath("$.attachments[0].blocks[2].elements[0].url").value(org.hamcrest.Matchers.matchesPattern("http://localhost:5173/incidents/\\d+")))
                 .andRespond(withSuccess("ok", MediaType.TEXT_PLAIN));
         slack.expect(ExpectedCount.once(), requestTo(WEBHOOK))
                 .andExpect(jsonPath("$.text").value("✅ RECOVERED: Payments API"))
-                .andExpect(jsonPath("$.blocks[1].fields[1].text").value(org.hamcrest.Matchers.startsWith("*Down for*\n")))
+                .andExpect(jsonPath("$.attachments[0].color").value("#2EB67D"))
+                .andExpect(jsonPath("$.attachments[0].blocks[1].fields[1].text").value(org.hamcrest.Matchers.startsWith("*Down for*\n")))
                 .andRespond(withSuccess("ok", MediaType.TEXT_PLAIN));
 
         check(monitorId, 500, 500, 500);
