@@ -1,0 +1,72 @@
+# PulseGuard on one server (e.g. Oracle Cloud Always Free): the app, Postgres, Redis, and Caddy
+# for HTTPS. Setup steps are in DEPLOY.md. From this folder, with .env filled in:
+#   docker compose up -d --build
+# Only Caddy is reachable from outside (ports 80 and 443); everything else stays on the
+# private Docker network.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"       # Let's Encrypt checks and the redirect to https
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    environment:
+      PULSEGUARD_DOMAIN: ${PULSEGUARD_DOMAIN:?set PULSEGUARD_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data     # the certificates: keep, or Let's Encrypt limits new ones
+      - caddy-config:/config
+    depends_on:
+      - app
+
+  app:
+    build: ..
+    restart: unless-stopped
+    env_file: .env
+    # Container addresses and the public origin, on top of .env.
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/pulseguard
+      SPRING_DATASOURCE_USERNAME: pulseguard
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      PULSEGUARD_APP_BASE_URL: https://${PULSEGUARD_DOMAIN}
+      PULSEGUARD_PING_BASE_URL: https://${PULSEGUARD_DOMAIN}
+    # The Java heap is 75% of this.
+    mem_limit: 2g
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pulseguard
+      POSTGRES_USER: pulseguard
+      POSTGRES_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:?set SPRING_DATASOURCE_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pulseguard -d pulseguard"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Caches and rate-limit counters only: losing it loses nothing permanent.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:
