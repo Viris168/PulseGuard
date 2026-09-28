@@ -4,12 +4,16 @@ import com.viris.PulseGuard.auth.User;
 import com.viris.PulseGuard.enumeration.*;
 import jakarta.persistence.*;
 import org.hibernate.annotations.Generated;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import org.hibernate.generator.EventType;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "monitors")
@@ -35,8 +39,25 @@ public class Monitor {
     @Column(nullable = false, length = 10)
     private String method = "GET";
 
-    @Column(name = "expected_status", nullable = false)
-    private int expectedStatus = 200;
+    /** Any of these counts as up. Never empty. */
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    @Column(name = "expected_statuses", nullable = false, columnDefinition = "int[]")
+    private List<Integer> expectedStatuses = new ArrayList<>(List.of(200));
+
+    /** Sent with POST and PUT checks; null for none. */
+    @Column(name = "request_body", columnDefinition = "TEXT")
+    private String requestBody;
+
+    /**
+     * Lazy: lists of monitors and incidents never show headers, and must stay a fixed number
+     * of queries. The check run, which needs them outside a transaction, loads them up front
+     * with MonitorRepository#findWithHeadersById. Replaced as a whole on save, never edited in
+     * place (see StatusPage#entries for why).
+     */
+    @ElementCollection
+    @CollectionTable(name = "monitor_headers", joinColumns = @JoinColumn(name = "monitor_id"))
+    @OrderBy("position")
+    private List<MonitorHeader> headers = new ArrayList<>();
 
     @Column(name = "interval_seconds", nullable = false)
     private int intervalSeconds = 300;

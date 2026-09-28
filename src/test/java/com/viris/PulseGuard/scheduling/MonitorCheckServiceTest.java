@@ -60,7 +60,7 @@ class MonitorCheckServiceTest {
         Check check = new Check();
         check.setResult(CheckResult.UP); // the executor always sets one
         check.setCheckedAt(checkedAt);
-        when(monitorRepository.findById(MONITOR_ID)).thenReturn(Optional.of(monitor));
+        when(monitorRepository.findWithHeadersById(MONITOR_ID)).thenReturn(Optional.of(monitor));
         when(checkExecutor.execute(monitor)).thenReturn(check);
 
         service.runCheck(MONITOR_ID);
@@ -75,7 +75,7 @@ class MonitorCheckServiceTest {
     void countsCheckResultByOutcome() {
         Check check = new Check();
         check.setResult(CheckResult.DOWN);
-        when(monitorRepository.findById(MONITOR_ID)).thenReturn(Optional.of(monitor));
+        when(monitorRepository.findWithHeadersById(MONITOR_ID)).thenReturn(Optional.of(monitor));
         when(checkExecutor.execute(monitor)).thenReturn(check);
 
         service.runCheck(MONITOR_ID);
@@ -87,7 +87,7 @@ class MonitorCheckServiceTest {
 
     @Test
     void skippedChecksAreNotCounted() {
-        when(monitorRepository.findById(MONITOR_ID)).thenReturn(Optional.empty());
+        when(monitorRepository.findWithHeadersById(MONITOR_ID)).thenReturn(Optional.empty());
 
         service.runCheck(MONITOR_ID);
 
@@ -96,7 +96,7 @@ class MonitorCheckServiceTest {
 
     @Test
     void unschedulesOrphanedJobWhenMonitorNoLongerExists() {
-        when(monitorRepository.findById(MONITOR_ID)).thenReturn(Optional.empty());
+        when(monitorRepository.findWithHeadersById(MONITOR_ID)).thenReturn(Optional.empty());
 
         service.runCheck(MONITOR_ID);
 
@@ -109,7 +109,7 @@ class MonitorCheckServiceTest {
     @Test
     void unschedulesStrayJobWhenMonitorIsPaused() {
         monitor.setActive(false);
-        when(monitorRepository.findById(MONITOR_ID)).thenReturn(Optional.of(monitor));
+        when(monitorRepository.findWithHeadersById(MONITOR_ID)).thenReturn(Optional.of(monitor));
 
         service.runCheck(MONITOR_ID);
 
@@ -125,7 +125,7 @@ class MonitorCheckServiceTest {
         Check check = new Check();
         check.setResult(CheckResult.DOWN);
         check.setCheckedAt(Instant.parse("2026-09-26T10:00:00Z"));
-        when(monitorRepository.findById(MONITOR_ID)).thenReturn(Optional.of(monitor));
+        when(monitorRepository.findWithHeadersById(MONITOR_ID)).thenReturn(Optional.of(monitor));
         when(checkExecutor.execute(monitor)).thenReturn(check);
         return check;
     }

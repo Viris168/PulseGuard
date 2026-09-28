@@ -16,6 +16,7 @@ import com.viris.PulseGuard.enumeration.MonitorType;
 import com.viris.PulseGuard.enumeration.Plan;
 import com.viris.PulseGuard.heartbeat.HeartbeatSchedule;
 import com.viris.PulseGuard.heartbeat.PingUrls;
+import com.viris.PulseGuard.monitor.dto.HeaderInput;
 import com.viris.PulseGuard.monitor.dto.MonitorRequest;
 import com.viris.PulseGuard.monitor.dto.MonitorResponse;
 import com.viris.PulseGuard.monitor.dto.MonitorSummaryResponse;
@@ -29,7 +30,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -272,8 +275,35 @@ public class MonitorService {
         }
         monitor.setUrl(request.url());
         monitor.setMethod(request.method());
-        monitor.setExpectedStatus(request.expectedStatus());
+        monitor.setExpectedStatuses(new ArrayList<>(request.statusesOrDefault()));
         monitor.setTimeoutMs(request.timeoutMs());
+        String body = request.requestBody();
+        monitor.setRequestBody(body == null || body.isBlank() ? null : body);
+        monitor.setHeaders(mergeHeaders(monitor.getHeaders(), request.headersOrEmpty()));
+    }
+
+    /**
+     * The new header list. A header sent without a value keeps the value saved under the same
+     * name: that is how an edit round-trips a secret the API never showed. With nothing saved
+     * under that name, it is an error rather than an empty header.
+     */
+    private static List<MonitorHeader> mergeHeaders(List<MonitorHeader> saved, List<HeaderInput> requested) {
+        Map<String, String> savedValues = saved.stream().collect(Collectors.toMap(
+                h -> h.getName().toLowerCase(Locale.ROOT), MonitorHeader::getValue, (a, b) -> a));
+        List<MonitorHeader> merged = new ArrayList<>(requested.size());
+        for (HeaderInput header : requested) {
+            String name = header.name().trim();
+            String value = header.value();
+            if (value == null) {
+                value = savedValues.get(name.toLowerCase(Locale.ROOT));
+                if (value == null) {
+                    throw new InvalidMonitorException("headers", "Enter a value for the " + name + " header");
+                }
+            }
+            merged.add(new MonitorHeader(name, value, merged.size()));
+        }
+        // A new list, not an edit of the old one: Hibernate then rewrites the rows cleanly.
+        return merged;
     }
 
     /** Missing and other-tenant monitors both surface as 404, so ids cannot be probed. */

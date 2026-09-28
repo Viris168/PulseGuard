@@ -67,7 +67,7 @@ class MonitorServiceTest {
     }
 
     private MonitorRequest request(String url, int intervalSeconds) {
-        return new MonitorRequest(null, "API health", url, "GET", 200, intervalSeconds, 5000, null);
+        return new MonitorRequest(null, "API health", url, "GET", 200, intervalSeconds, 5000, null, null, null, null);
     }
 
     private MonitorRequest request() {

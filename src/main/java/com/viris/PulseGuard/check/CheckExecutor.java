@@ -9,15 +9,19 @@ import io.netty.handler.timeout.ReadTimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.netty.http.client.HttpClientRequest;
 
 import java.net.ConnectException;
 import java.net.UnknownHostException;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 
 import javax.net.ssl.SSLException;
 
@@ -76,14 +80,25 @@ public class CheckExecutor {
 
         long startedAt = System.nanoTime();
         try {
-            Integer statusCode = webClient
+            WebClient.RequestBodySpec request = webClient
                     .method(HttpMethod.valueOf(monitor.getMethod()))
                     .uri(monitor.getUrl())
-                    .header("User-Agent", properties.userAgent())
-                    .httpRequest(request -> {
-                        HttpClientRequest nativeRequest = request.getNativeRequest();
-                        nativeRequest.responseTimeout(responseTimeout);
+                    .headers(headers -> {
+                        // The user's headers first; User-Agent is ours (the validator refuses it).
+                        monitor.getHeaders().forEach(h -> headers.set(h.getName(), h.getValue()));
+                        headers.set("User-Agent", properties.userAgent());
                     })
+                    .httpRequest(r -> {
+                        HttpClientRequest nativeRequest = r.getNativeRequest();
+                        nativeRequest.responseTimeout(responseTimeout);
+                    });
+            if (monitor.getRequestBody() != null && sendsBody(monitor.getMethod())) {
+                if (monitor.getHeaders().stream().noneMatch(h -> h.getName().equalsIgnoreCase("Content-Type"))) {
+                    request.contentType(guessContentType(monitor.getRequestBody()));
+                }
+                request.bodyValue(monitor.getRequestBody());
+            }
+            Integer statusCode = request
                     // exchangeToMono, not retrieve(): a 4xx/5xx is data here, not an exception.
                     .exchangeToMono(response -> response.releaseBody()
                             .thenReturn(response.statusCode().value()))
@@ -93,9 +108,9 @@ public class CheckExecutor {
             if (statusCode == null) {
                 return save(failure(monitor, ErrorType.TIMEOUT, "No response", elapsedMs));
             }
-            if (statusCode != monitor.getExpectedStatus()) {
+            if (!monitor.getExpectedStatuses().contains(statusCode)) {
                 return save(failure(monitor, ErrorType.STATUS_MISMATCH,
-                        "Expected " + monitor.getExpectedStatus() + " but got " + statusCode,
+                        "Expected " + describe(monitor.getExpectedStatuses()) + " but got " + statusCode,
                         elapsedMs, statusCode));
             }
 
@@ -111,6 +126,28 @@ public class CheckExecutor {
             log.info("Check DOWN for monitorId={} type={}", monitor.getId(), errorType);
             return save(failure(monitor, errorType, rootMessage(e), elapsedMs(startedAt)));
         }
+    }
+
+    private static boolean sendsBody(String method) {
+        return "POST".equals(method) || "PUT".equals(method);
+    }
+
+    /** When the user set no Content-Type: JSON if it looks like JSON, plain text otherwise. */
+    static MediaType guessContentType(String body) {
+        String trimmed = body.stripLeading();
+        return trimmed.startsWith("{") || trimmed.startsWith("[")
+                ? MediaType.APPLICATION_JSON
+                : new MediaType(MediaType.TEXT_PLAIN, StandardCharsets.UTF_8);
+    }
+
+    /** "200", "200 or 204", "200, 201 or 204": the incident cause reads as a sentence. */
+    static String describe(List<Integer> statuses) {
+        if (statuses.size() == 1) {
+            return String.valueOf(statuses.getFirst());
+        }
+        String head = statuses.subList(0, statuses.size() - 1).stream()
+                .map(String::valueOf).collect(Collectors.joining(", "));
+        return head + " or " + statuses.getLast();
     }
 
     /**

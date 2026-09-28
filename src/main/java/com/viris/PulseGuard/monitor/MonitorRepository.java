@@ -1,6 +1,7 @@
 package com.viris.PulseGuard.monitor;
 
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -25,6 +26,10 @@ public interface MonitorRepository extends JpaRepository<Monitor, Long> {
 
     // Internal (scheduler) use only
     List<Monitor> findAllByActiveTrue();
+
+    /** For the check run, which uses the headers after its transaction has ended. */
+    @EntityGraph(attributePaths = "headers")
+    Optional<Monitor> findWithHeadersById(Long id);
 
     /** The public ping endpoint's lookup; the token is unique. */
     Optional<Monitor> findByHeartbeatToken(String heartbeatToken);

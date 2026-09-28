@@ -33,6 +33,7 @@ import {
   formatInterval,
   formatMs,
   formatSpan,
+  formatStatuses,
   formatUptime,
   heartbeatDue,
   heartbeatSchedule,
@@ -207,7 +208,7 @@ export function MonitorDetailPage() {
               </a>
               <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
                 Every {formatInterval(monitor.intervalSeconds)} · Timeout {formatDuration(monitor.timeoutMs / 1000)} · Expects{' '}
-                {monitor.expectedStatus} · Last check {timeAgo(monitor.lastCheckedAt)}
+                {formatStatuses(monitor.expectedStatuses)} · Last check {timeAgo(monitor.lastCheckedAt)}
               </p>
             </>
           )}

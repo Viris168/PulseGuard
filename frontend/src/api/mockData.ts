@@ -3,7 +3,7 @@ import type { ChannelType, IncidentStatus } from '../types/incident'
 import type { Monitor } from '../types/monitor'
 
 /** What the mock "database" stores per monitor: the real row plus knobs for generating history. */
-export interface MockMonitor extends Omit<Monitor, 'pingUrl'> {
+export interface MockMonitor extends Omit<Monitor, 'pingUrl' | 'expectedStatuses'> {
   /** Owner — every query is scoped to the signed-in user, like the backend. */
   userId: number
   /** Heartbeat secret; the public ping URL is built from it. */

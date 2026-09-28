@@ -13,6 +13,12 @@ export function timeAgo(iso: string | null): string {
   return `${Math.round(hours / 24)}d ago`
 }
 
+/** "200", "200 or 204", "200, 201 or 204" — same wording as the backend's failure message. */
+export function formatStatuses(statuses: number[]): string {
+  if (statuses.length <= 1) return String(statuses[0] ?? '')
+  return `${statuses.slice(0, -1).join(', ')} or ${statuses[statuses.length - 1]}`
+}
+
 export function formatInterval(seconds: number): string {
   if (seconds % 3600 === 0) return `${seconds / 3600}h`
   if (seconds % 60 === 0) return `${seconds / 60}m`

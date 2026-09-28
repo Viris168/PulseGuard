@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { AlertCircle, Globe, HeartPulse, type LucideIcon } from 'lucide-react'
+import { AlertCircle, Globe, HeartPulse, Lock, Plus, Trash2, type LucideIcon } from 'lucide-react'
 import { BackLink } from '../components/ui/BackLink'
 import { getBillingSummary } from '../api/billing'
 import { ApiError, loadErrorMessage } from '../api/errors'
@@ -14,7 +14,7 @@ import { PageHeader } from '../components/layout/PageHeader'
 import { Button, ButtonLink } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { EmptyState } from '../components/ui/EmptyState'
-import { Field, Input, Select } from '../components/ui/Field'
+import { Field, Input, Select, Textarea } from '../components/ui/Field'
 import { Spinner } from '../components/ui/Spinner'
 
 const METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'HEAD']
@@ -53,13 +53,51 @@ const TYPES: { type: MonitorType; title: string; body: string; icon: LucideIcon 
   { type: 'HEARTBEAT', title: 'Heartbeat', body: 'Your cron job or worker pings PulseGuard. Silence means down.', icon: HeartPulse },
 ]
 
+/** A header row. `saved` = a secret the server kept; an empty value then means "unchanged". */
+interface HeaderRow {
+  name: string
+  value: string
+  saved: boolean
+}
+
+// Mirrors MonitorRequestValidator on the server.
+const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,100}$/
+const FORBIDDEN_HEADERS = new Set(['host', 'content-length', 'transfer-encoding', 'connection', 'keep-alive', 'proxy-connection', 'te', 'trailer', 'upgrade', 'expect', 'user-agent'])
+const MAX_HEADERS = 20
+const MAX_BODY = 10_000
+const sendsBody = (m: HttpMethod) => m === 'POST' || m === 'PUT'
+
+/** "200, 204" → [200, 204]; null if anything in it isn't a status code. */
+function parseStatuses(text: string): number[] | null {
+  const parts = text.split(/[\s,]+/).filter(Boolean)
+  const codes = parts.map(Number)
+  return codes.every((c) => Number.isInteger(c) && c >= 100 && c <= 599) ? codes : null
+}
+
+function headerError(headers: HeaderRow[]): string | undefined {
+  if (headers.length > MAX_HEADERS) return `Send at most ${MAX_HEADERS} headers`
+  const seen = new Set<string>()
+  for (const h of headers) {
+    const name = h.name.trim()
+    if (!HEADER_NAME.test(name)) return 'Header names can only use letters, digits and - (e.g. X-Api-Key)'
+    if (FORBIDDEN_HEADERS.has(name.toLowerCase())) return `The ${name} header is set by PulseGuard and can't be changed`
+    if (seen.has(name.toLowerCase())) return `The ${name} header appears twice`
+    seen.add(name.toLowerCase())
+    if (!h.value && !h.saved) return `Enter a value for the ${name} header`
+    if (/[\r\n]/.test(h.value)) return "Header values can't contain line breaks"
+  }
+}
+
 /** Form state is all strings so inputs stay controlled while the user is mid-edit. */
 interface FormState {
   type: MonitorType
   name: string
   url: string
   method: HttpMethod
-  expectedStatus: string
+  /** Comma-separated, e.g. "200, 204". */
+  expectedStatuses: string
+  headers: HeaderRow[]
+  requestBody: string
   intervalSeconds: string
   timeoutSeconds: string
   graceSeconds: string
@@ -72,7 +110,9 @@ const empty: FormState = {
   name: '',
   url: 'https://',
   method: 'GET',
-  expectedStatus: '200',
+  expectedStatuses: '200',
+  headers: [],
+  requestBody: '',
   intervalSeconds: '300',
   timeoutSeconds: '10',
   graceSeconds: '300',
@@ -88,8 +128,14 @@ function validate(f: FormState): Errors {
   if (!/^https?:\/\/.+/.test(f.url.trim())) e.url = 'URL must start with http:// or https://'
   else if (f.url.length > 2048) e.url = 'URL is too long'
 
-  const status = Number(f.expectedStatus)
-  if (!Number.isInteger(status) || status < 100 || status > 599) e.expectedStatus = 'Enter a status code from 100 to 599'
+  const statuses = parseStatuses(f.expectedStatuses)
+  if (!statuses || statuses.length === 0) e.expectedStatuses = 'Enter status codes from 100 to 599, e.g. 200, 204'
+  else if (statuses.length > 10) e.expectedStatuses = 'Accept at most 10 status codes'
+  else if (new Set(statuses).size !== statuses.length) e.expectedStatuses = 'Each status code can appear only once'
+
+  const headers = headerError(f.headers)
+  if (headers) e.headers = headers
+  if (sendsBody(f.method) && f.requestBody.length > MAX_BODY) e.requestBody = `Keep the body under ${MAX_BODY} characters`
 
   const timeout = Number(f.timeoutSeconds)
   if (!Number.isFinite(timeout) || timeout < 1 || timeout > 30) e.timeoutSeconds = 'Timeout must be 1–30 seconds'
@@ -103,10 +149,16 @@ function toRequest(f: FormState): MonitorRequest {
     name: f.name.trim(),
     url: f.type === 'HTTP' ? f.url.trim() : '',
     method: f.method,
-    expectedStatus: Number(f.expectedStatus),
+    expectedStatuses: parseStatuses(f.expectedStatuses) ?? [200],
     intervalSeconds: Number(f.intervalSeconds),
     timeoutMs: f.type === 'HTTP' ? Math.round(Number(f.timeoutSeconds) * 1000) : 0,
-    ...(f.type === 'HEARTBEAT' ? { graceSeconds: Number(f.graceSeconds) } : {}),
+    ...(f.type === 'HEARTBEAT'
+      ? { graceSeconds: Number(f.graceSeconds) }
+      : {
+          // An empty saved secret goes back as null: "keep what you have".
+          headers: f.headers.map((h) => ({ name: h.name.trim(), value: h.saved && !h.value ? null : h.value })),
+          requestBody: sendsBody(f.method) ? f.requestBody : '',
+        }),
   }
 }
 
@@ -145,7 +197,9 @@ export function MonitorFormPage() {
           name: m.name,
           url: m.url,
           method: m.method,
-          expectedStatus: String(m.expectedStatus),
+          expectedStatuses: (m.expectedStatuses ?? [m.expectedStatus]).join(', '),
+          headers: (m.headers ?? []).map((h) => ({ name: h.name, value: h.value ?? '', saved: h.secret })),
+          requestBody: m.requestBody ?? '',
           intervalSeconds: String(m.intervalSeconds),
           timeoutSeconds: String(m.timeoutMs / 1000),
           graceSeconds: String(m.graceSeconds ?? 300),
@@ -160,6 +214,13 @@ export function MonitorFormPage() {
     setForm(next)
     // After the first submit attempt, re-validate live so errors clear as they're fixed.
     if (touched) setErrors(validate(next))
+  }
+
+  function setHeader(index: number, patch: Partial<HeaderRow>) {
+    set(
+      'headers',
+      form.headers.map((h, i) => (i === index ? { ...h, ...patch } : h)),
+    )
   }
 
   function chooseType(type: MonitorType) {
@@ -188,8 +249,11 @@ export function MonitorFormPage() {
         navigate(created.type === 'HEARTBEAT' ? `/monitors/${created.id}` : '/monitors')
       }
     } catch (err) {
+      // Field errors the server found (e.g. a header only it rejects) go next to their field.
+      const fields = err instanceof ApiError ? err.fieldErrors : {}
+      if (Object.keys(fields).length) setErrors((prev) => ({ ...prev, ...fields }))
       setSubmitError({
-        message: err instanceof Error ? err.message : 'Something went wrong',
+        message: Object.keys(fields).length ? 'Fix the highlighted fields.' : err instanceof Error ? err.message : 'Something went wrong',
         planLimit: err instanceof ApiError && err.status === 403,
       })
       setSaving(false)
@@ -364,21 +428,111 @@ export function MonitorFormPage() {
                       </div>
                     </Field>
 
-                    <Field id="status" label="Expected status" hint="Anything else counts as down" error={errors.expectedStatus}>
+                    <Field id="status" label="Expected status" hint="e.g. 200, 204 — anything else is down" error={errors.expectedStatuses}>
                       <Input
                         id="status"
-                        type="number"
-                        min={100}
-                        max={599}
-                        value={form.expectedStatus}
-                        onChange={(e) => set('expectedStatus', e.target.value)}
-                        error={errors.expectedStatus}
+                        inputMode="numeric"
+                        value={form.expectedStatuses}
+                        onChange={(e) => set('expectedStatuses', e.target.value)}
+                        placeholder="200"
+                        error={errors.expectedStatuses}
                       />
                     </Field>
                   </>
                 )}
               </div>
             </div>
+
+            {!heartbeat && (
+              <div className="space-y-5 border-t border-zinc-200 p-5 sm:p-6 dark:border-zinc-800">
+                <div>
+                  <h2 className="text-sm font-semibold">Request</h2>
+                  <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                    Optional. Headers for authenticated endpoints{sendsBody(form.method) ? ', and a body to send' : ''}. Secret values
+                    (Authorization, tokens, keys) are never shown again after saving.
+                  </p>
+                </div>
+
+                <div>
+                  <span className="text-sm font-medium">Headers</span>
+                  {form.headers.length > 0 && (
+                    <ul className="mt-2 space-y-2">
+                      {form.headers.map((h, i) => (
+                        <li key={i} className="grid grid-cols-[1fr_1.5fr_auto] items-center gap-2">
+                          <Input
+                            aria-label={`Header ${i + 1} name`}
+                            value={h.name}
+                            onChange={(e) => setHeader(i, { name: e.target.value, saved: false })}
+                            placeholder="X-Api-Key"
+                            className="font-mono"
+                          />
+                          <div className="relative">
+                            <Input
+                              aria-label={`Header ${i + 1} value`}
+                              value={h.value}
+                              onChange={(e) => setHeader(i, { value: e.target.value })}
+                              placeholder={h.saved ? 'Unchanged' : 'Value'}
+                              className={cn('font-mono', h.saved && 'pr-8')}
+                            />
+                            {h.saved && (
+                              <Lock
+                                className="pointer-events-none absolute top-1/2 right-2.5 size-3.5 -translate-y-1/2 text-zinc-400"
+                                aria-label="Saved secret"
+                              />
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => set('headers', form.headers.filter((_, j) => j !== i))}
+                            className="rounded-md p-2 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                            aria-label={`Remove header ${h.name || i + 1}`}
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {errors.headers && (
+                    <p className="mt-2 text-sm text-red-600 dark:text-red-400" role="alert">
+                      {errors.headers}
+                    </p>
+                  )}
+                  {form.headers.length < MAX_HEADERS && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="mt-2"
+                      onClick={() => set('headers', [...form.headers, { name: '', value: '', saved: false }])}
+                    >
+                      <Plus className="size-3.5" aria-hidden />
+                      Add header
+                    </Button>
+                  )}
+                </div>
+
+                {sendsBody(form.method) && (
+                  <Field
+                    id="body"
+                    label="Body"
+                    hint="Sent as JSON if it looks like JSON, otherwise plain text — add a Content-Type header to override."
+                    error={errors.requestBody}
+                  >
+                    <Textarea
+                      id="body"
+                      value={form.requestBody}
+                      onChange={(e) => set('requestBody', e.target.value)}
+                      placeholder='{"query": "{ health }"}'
+                      className="font-mono text-xs"
+                      rows={4}
+                      maxLength={MAX_BODY}
+                      error={errors.requestBody}
+                    />
+                  </Field>
+                )}
+              </div>
+            )}
 
             <div className="flex flex-col-reverse gap-3 rounded-b-xl border-t border-zinc-200 bg-zinc-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-end sm:px-6 dark:border-zinc-800 dark:bg-zinc-900/60">
               {submitError && (

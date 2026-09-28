@@ -47,7 +47,8 @@ public class MonitorCheckService {
 
     public void runCheck(Long monitorId) {
         // Internal path: the job only knows the id, and it was written by our own scheduler.
-        Optional<Monitor> found = monitorRepository.findById(monitorId);
+        // With its headers: the HTTP call below runs outside any transaction.
+        Optional<Monitor> found = monitorRepository.findWithHeadersById(monitorId);
         if (found.isEmpty()) {
             // E.g. the owner's account was deleted and the monitor went with it by cascade,
             // which no service call saw. The job cleans itself up.

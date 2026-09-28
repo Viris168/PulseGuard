@@ -20,6 +20,7 @@ public record MonitorSummaryResponse(
         String url,
         String method,
         Integer expectedStatus,
+        List<Integer> expectedStatuses,
         Integer intervalSeconds,
         Integer timeoutMs,
         MonitorState state,
@@ -38,7 +39,8 @@ public record MonitorSummaryResponse(
                                               Integer lastResponseTimeMs, Integer lastStatusCode,
                                               List<Boolean> recentChecks) {
         return new MonitorSummaryResponse(monitor.getId(), monitor.getName(), monitor.getUrl(),
-                monitor.getMethod(), monitor.getExpectedStatus(), monitor.getIntervalSeconds(),
+                monitor.getMethod(), monitor.getExpectedStatuses().getFirst(),
+                List.copyOf(monitor.getExpectedStatuses()), monitor.getIntervalSeconds(),
                 monitor.getTimeoutMs(), monitor.getState(), monitor.isActive(), monitor.getLastCheckedAt(),
                 monitor.getCreatedAt(), monitor.getType(), monitor.getGraceSeconds(), pingUrl,
                 uptime24h, lastResponseTimeMs, lastStatusCode, recentChecks);

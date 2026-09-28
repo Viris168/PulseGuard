@@ -4,6 +4,7 @@ import com.viris.PulseGuard.common.net.SafeUrlValidator;
 import com.viris.PulseGuard.enumeration.CheckResult;
 import com.viris.PulseGuard.enumeration.ErrorType;
 import com.viris.PulseGuard.monitor.Monitor;
+import com.viris.PulseGuard.monitor.MonitorHeader;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
@@ -14,6 +15,8 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -66,7 +69,7 @@ class CheckExecutorTest {
         monitor.setName("target");
         monitor.setUrl(server.url("/health").toString());
         monitor.setMethod("GET");
-        monitor.setExpectedStatus(expectedStatus);
+        monitor.setExpectedStatuses(new ArrayList<>(List.of(expectedStatus)));
         monitor.setTimeoutMs(timeoutMs);
         return monitor;
     }
@@ -101,6 +104,65 @@ class CheckExecutorTest {
         server.enqueue(new MockResponse().setResponseCode(204));
 
         assertThat(executor.execute(monitor(204, 5000)).getResult()).isEqualTo(CheckResult.UP);
+    }
+
+    @Test
+    void acceptsAnyOfSeveralExpectedStatuses() {
+        server.enqueue(new MockResponse().setResponseCode(204));
+        server.enqueue(new MockResponse().setResponseCode(503));
+        Monitor monitor = monitor(200, 5000);
+        monitor.setExpectedStatuses(new ArrayList<>(List.of(200, 204, 301)));
+
+        assertThat(executor.execute(monitor).getResult()).isEqualTo(CheckResult.UP);
+        Check miss = executor.execute(monitor);
+        assertThat(miss.getResult()).isEqualTo(CheckResult.DOWN);
+        assertThat(miss.getErrorMessage()).isEqualTo("Expected 200, 204 or 301 but got 503");
+    }
+
+    @Test
+    void sendsTheMonitorsHeadersButKeepsItsOwnUserAgent() throws InterruptedException {
+        server.enqueue(new MockResponse().setResponseCode(200));
+        Monitor monitor = monitor(200, 5000);
+        monitor.setHeaders(new ArrayList<>(List.of(
+                new MonitorHeader("Authorization", "Bearer s3cret", 0),
+                new MonitorHeader("X-Env", "prod", 1))));
+
+        executor.execute(monitor);
+
+        RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+        assertThat(request.getHeader("Authorization")).isEqualTo("Bearer s3cret");
+        assertThat(request.getHeader("X-Env")).isEqualTo("prod");
+        assertThat(request.getHeader("User-Agent")).isEqualTo("PulseGuard-Test/1.0");
+    }
+
+    @Test
+    void sendsABodyWithPostAndGuessesJson() throws InterruptedException {
+        server.enqueue(new MockResponse().setResponseCode(200));
+        Monitor monitor = monitor(200, 5000);
+        monitor.setMethod("POST");
+        monitor.setRequestBody("{\"query\":\"{ health }\"}");
+
+        assertThat(executor.execute(monitor).getResult()).isEqualTo(CheckResult.UP);
+
+        RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+        assertThat(request.getMethod()).isEqualTo("POST");
+        assertThat(request.getBody().readUtf8()).isEqualTo("{\"query\":\"{ health }\"}");
+        assertThat(request.getHeader("Content-Type")).startsWith("application/json");
+    }
+
+    @Test
+    void aContentTypeHeaderTheUserSetWins() throws InterruptedException {
+        server.enqueue(new MockResponse().setResponseCode(200));
+        Monitor monitor = monitor(200, 5000);
+        monitor.setMethod("PUT");
+        monitor.setRequestBody("a=1&b=2");
+        monitor.setHeaders(new ArrayList<>(List.of(
+                new MonitorHeader("Content-Type", "application/x-www-form-urlencoded", 0))));
+
+        executor.execute(monitor);
+
+        assertThat(server.takeRequest(1, TimeUnit.SECONDS).getHeader("Content-Type"))
+                .isEqualTo("application/x-www-form-urlencoded");
     }
 
     @Test

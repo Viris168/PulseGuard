@@ -17,7 +17,10 @@ export interface Monitor {
   name: string
   url: string
   method: HttpMethod
+  /** The first of expectedStatuses; kept for older code. */
   expectedStatus: number
+  /** Any of these counts as up. */
+  expectedStatuses: number[]
   intervalSeconds: number
   timeoutMs: number
   state: MonitorState
@@ -29,6 +32,17 @@ export interface Monitor {
   graceSeconds: number | null
   /** Heartbeat only: the secret URL the job calls. Treat like a password. */
   pingUrl: string | null
+  /** HTTP only. Not in the monitors list, only on a single monitor. */
+  headers?: MonitorHeader[]
+  /** HTTP POST/PUT only. Not in the monitors list. */
+  requestBody?: string | null
+}
+
+/** A saved request header. A secret one (Authorization, *-Token, *-Key…) never comes back with its value. */
+export interface MonitorHeader {
+  name: string
+  value: string | null
+  secret: boolean
 }
 
 // Mirrors com.viris.PulseGuard.monitor.dto.MonitorRequest
@@ -37,14 +51,18 @@ export interface MonitorRequest {
   name: string
   url: string
   method: HttpMethod
-  expectedStatus: number
+  expectedStatuses: number[]
   intervalSeconds: number
   timeoutMs: number
   /** Heartbeat only. */
   graceSeconds?: number
+  /** A null value keeps the value already saved under that name (how secrets round-trip). */
+  headers?: { name: string; value: string | null }[]
+  /** POST and PUT only. */
+  requestBody?: string
 }
 
-// Not in the backend yet — dashboard stats will need a new endpoint (e.g. GET /api/monitors/stats).
+// The per-monitor figures GET /api/monitors adds to each monitor (MonitorSummaryResponse).
 export interface MonitorStats {
   uptime24h: number | null
   lastResponseTimeMs: number | null

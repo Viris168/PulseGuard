@@ -5,6 +5,7 @@ import com.viris.PulseGuard.enumeration.MonitorType;
 import com.viris.PulseGuard.monitor.Monitor;
 
 import java.time.Instant;
+import java.util.List;
 
 public record MonitorResponse(
         Long id,
@@ -12,6 +13,7 @@ public record MonitorResponse(
         String url,
         String method,
         Integer expectedStatus,
+        List<Integer> expectedStatuses,
         Integer intervalSeconds,
         Integer timeoutMs,
         MonitorState state,
@@ -20,7 +22,9 @@ public record MonitorResponse(
         Instant createdAt,
         MonitorType type,
         Integer graceSeconds,
-        String pingUrl
+        String pingUrl,
+        List<HeaderView> headers,
+        String requestBody
 ) {
     /** @param pingUrl the heartbeat's secret URL (PingUrls), null for HTTP monitors */
     public static MonitorResponse from(Monitor monitor, String pingUrl) {
@@ -29,7 +33,8 @@ public record MonitorResponse(
                 monitor.getName(),
                 monitor.getUrl(),
                 monitor.getMethod(),
-                monitor.getExpectedStatus(),
+                monitor.getExpectedStatuses().getFirst(),
+                List.copyOf(monitor.getExpectedStatuses()),
                 monitor.getIntervalSeconds(),
                 monitor.getTimeoutMs(),
                 monitor.getState(),
@@ -38,7 +43,9 @@ public record MonitorResponse(
                 monitor.getCreatedAt(),
                 monitor.getType(),
                 monitor.getGraceSeconds(),
-                pingUrl
+                pingUrl,
+                monitor.getHeaders().stream().map(HeaderView::from).toList(),
+                monitor.getRequestBody()
         );
     }
 }
