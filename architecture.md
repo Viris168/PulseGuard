@@ -111,17 +111,20 @@ stateDiagram-v2
 ### 3.7 Notification Service
 - Listens for incident events using Spring's `@TransactionalEventListener(phase = AFTER_COMMIT)` — alerts fire only after the incident is safely saved.
 - Runs `@Async` so slow email providers never delay checks.
-- Strategy pattern for channels:
+- Strategy pattern for channels; Spring collects every implementation, so a new channel is one new class:
 
 ```java
-public interface NotificationChannel {
-    ChannelType type();                 // EMAIL, SLACK, TELEGRAM, SMS, WEBHOOK
-    void send(AlertMessage message, ChannelConfig config);
+public interface NotificationSender {
+    ChannelType type();                          // EMAIL, SLACK (TELEGRAM, SMS, WEBHOOK: no sender yet)
+    void send(String target, AlertMessage message);
 }
 ```
 
-- Every sent alert is logged in `notifications` with a unique key `(incident_id, channel_id, event_type)` to prevent duplicate alerts on retry.
-- Failed sends are retried with backoff (Spring Retry).
+- Senders today: `EmailSender` (plain text over SMTP) and `SlackSender` (Block Kit to an incoming
+  webhook: header, details as fields, footer; user text escaped so a monitor name cannot `@channel`).
+- Only channels the owner's plan includes are used, checked again at send time (`PlanLimits`).
+- Every alert is claimed in `notifications` with a unique key `(incident_id, channel_id, event_type)`
+  before sending, so it goes out at most once; the row ends SENT or FAILED. No automatic retries.
 
 ### 3.8 Billing Service
 - Creates Stripe Checkout Sessions for upgrades.

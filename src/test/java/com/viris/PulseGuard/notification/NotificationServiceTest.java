@@ -1,7 +1,9 @@
 package com.viris.PulseGuard.notification;
 
 import com.viris.PulseGuard.auth.User;
+import com.viris.PulseGuard.billing.PlanLimits;
 import com.viris.PulseGuard.enumeration.ChannelType;
+import com.viris.PulseGuard.enumeration.Plan;
 import com.viris.PulseGuard.enumeration.NotificationEventType;
 import com.viris.PulseGuard.enumeration.NotificationStatus;
 import com.viris.PulseGuard.incident.Incident;
@@ -56,20 +58,25 @@ class NotificationServiceTest {
     private NotificationRepository notificationRepository;
     @Mock
     private NotificationSender emailSender;
+    @Mock
+    private NotificationSender slackSender;
 
     private NotificationService service;
     private Incident incident;
+    private User owner;
     /** Stand-in for the notifications table: what saveAndFlush stored, findById returns. */
     private final List<Notification> table = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
         when(emailSender.type()).thenReturn(ChannelType.EMAIL);
+        when(slackSender.type()).thenReturn(ChannelType.SLACK);
         // A mock transaction manager: the callbacks run, transactions are simply no-ops.
         service = new NotificationService(incidentRepository, channelRepository, notificationRepository,
-                new AlertMessageFactory(), List.of(emailSender), mock(PlatformTransactionManager.class));
+                new AlertMessageFactory(), new PlanLimits(), List.of(emailSender, slackSender),
+                mock(PlatformTransactionManager.class));
 
-        User owner = User.builder().id(USER_ID).email("owner@example.com").build();
+        owner = User.builder().id(USER_ID).email("owner@example.com").build();
         Monitor monitor = new Monitor();
         monitor.setUser(owner);
         monitor.setName("Payments API");
@@ -165,12 +172,39 @@ class NotificationServiceTest {
 
     @Test
     void skipsChannelTypesWithoutASender() {
-        userHasChannels(channel(12, ChannelType.SLACK, "https://hooks.slack.com/secret"),
+        owner.setPlan(Plan.BUSINESS); // SMS is on the plan, but nothing can send it yet
+        userHasChannels(channel(12, ChannelType.SMS, "+85512345678"),
                 channel(10, ChannelType.EMAIL, "a@example.com"));
 
         assertThatCode(() -> service.notify(INCIDENT_ID, NotificationEventType.OPENED)).doesNotThrowAnyException();
 
         verify(emailSender).send(eq("a@example.com"), any());
+        assertThat(table).hasSize(1);
+    }
+
+    @Test
+    void sendsToSlackWhenThePlanIncludesIt() {
+        owner.setPlan(Plan.PRO);
+        userHasChannels(channel(10, ChannelType.EMAIL, "a@example.com"),
+                channel(12, ChannelType.SLACK, "https://hooks.slack.com/services/T/B/x"));
+
+        service.notify(INCIDENT_ID, NotificationEventType.OPENED);
+
+        verify(emailSender).send(eq("a@example.com"), any());
+        verify(slackSender).send(eq("https://hooks.slack.com/services/T/B/x"), any());
+        assertThat(table).hasSize(2);
+    }
+
+    @Test
+    void skipsChannelsThePlanDoesNotInclude() {
+        // FREE: a Slack channel left enabled (e.g. from before plan gating) must still not be used.
+        userHasChannels(channel(10, ChannelType.EMAIL, "a@example.com"),
+                channel(12, ChannelType.SLACK, "https://hooks.slack.com/services/T/B/x"));
+
+        service.notify(INCIDENT_ID, NotificationEventType.OPENED);
+
+        verify(emailSender).send(eq("a@example.com"), any());
+        verify(slackSender, never()).send(any(), any());
         assertThat(table).hasSize(1);
     }
 

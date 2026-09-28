@@ -2,6 +2,8 @@ package com.viris.PulseGuard.notification;
 
 import com.viris.PulseGuard.incident.Incident;
 import com.viris.PulseGuard.monitor.Monitor;
+import com.viris.PulseGuard.notification.dto.AlertMessage;
+import com.viris.PulseGuard.notification.dto.AlertMessage.Field;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -60,6 +62,65 @@ class AlertMessageFactoryTest {
         assertThat(body)
                 .contains("Down for:  14m 30s")
                 .contains("2026-09-27 03:27:15 UTC");
+    }
+
+    @Test
+    void emailBodiesStayExactlyAsTheyWere() {
+        // Pinned before AlertMessage gained structured fields: email output must not change.
+        assertThat(factory.opened(monitor, incident(null)).body()).isEqualTo("""
+                Payments API is down.
+
+                URL:      https://api.example.com/health
+                Cause:    TIMEOUT: No response
+                Since:    2026-09-27 03:12:45 UTC
+
+                You'll get another email when it recovers.
+                """);
+        assertThat(factory.resolved(monitor, incident(STARTED.plusSeconds(870))).body()).isEqualTo("""
+                Payments API is back up.
+
+                URL:       https://api.example.com/health
+                Down for:  14m 30s
+                From:      2026-09-27 03:12:45 UTC
+                To:        2026-09-27 03:27:15 UTC
+                """);
+    }
+
+    @Test
+    void openedCarriesTheSameDetailsAsLabelledFields() {
+        AlertMessage message = factory.opened(monitor, incident(null));
+
+        assertThat(message.fields()).containsExactly(
+                new Field("URL", "https://api.example.com/health"),
+                new Field("Cause", "TIMEOUT: No response"),
+                new Field("Since", "2026-09-27 03:12:45 UTC"));
+        assertThat(message.footer()).isEqualTo("You'll get another message when it recovers.");
+    }
+
+    @Test
+    void resolvedCarriesDurationAndBothTimesAsFields() {
+        AlertMessage message = factory.resolved(monitor, incident(STARTED.plusSeconds(870)));
+
+        assertThat(message.fields()).containsExactly(
+                new Field("URL", "https://api.example.com/health"),
+                new Field("Down for", "14m 30s"),
+                new Field("From", "2026-09-27 03:12:45 UTC"),
+                new Field("To", "2026-09-27 03:27:15 UTC"));
+        assertThat(message.footer()).isNull();
+    }
+
+    @Test
+    void fieldsNeverLeakCredentialsFromTheUrl() {
+        Monitor secretive = monitor("https://admin:s3cret@api.example.com/health?api_key=sk_live_abc123");
+
+        assertThat(factory.opened(secretive, incident(null)).fields())
+                .extracting(Field::value)
+                .noneMatch(value -> value.contains("s3cret") || value.contains("sk_live"));
+    }
+
+    @Test
+    void testAlertHasNoFields() {
+        assertThat(factory.test().fields()).isEmpty();
     }
 
     @Test
