@@ -118,6 +118,10 @@ pulseguard:
   notification:
     # Sender shown on alert emails.
     from: ${PULSEGUARD_NOTIFICATION_FROM}
+    slack:
+      # Alerts share a small pool (task.execution above); a slow Slack must not hold it.
+      connect-timeout: 5s
+      read-timeout: 10s
   stats:
     # How long cached dashboard stats are served; checks run at most every 60s.
     cache-ttl: ${PULSEGUARD_STATS_CACHE_TTL}

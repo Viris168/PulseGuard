@@ -3,6 +3,7 @@ package com.viris.PulseGuard.notification;
 import com.viris.PulseGuard.incident.Incident;
 import com.viris.PulseGuard.monitor.Monitor;
 import com.viris.PulseGuard.notification.dto.AlertMessage;
+import com.viris.PulseGuard.notification.dto.AlertMessage.Field;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -10,6 +11,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 
 /**
  * What an alert says. Pure formatting, no I/O. Written to be understood from a phone lock
@@ -22,6 +24,8 @@ public class AlertMessageFactory {
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss 'UTC'").withZone(ZoneOffset.UTC);
 
     public AlertMessage opened(Monitor monitor, Incident incident) {
+        String url = safeUrl(monitor.getUrl());
+        String since = format(incident.getStartedAt());
         String body = """
                 %s is down.
 
@@ -30,12 +34,20 @@ public class AlertMessageFactory {
                 Since:    %s
 
                 You'll get another email when it recovers.
-                """.formatted(monitor.getName(), safeUrl(monitor.getUrl()),
-                incident.getCause(), format(incident.getStartedAt()));
-        return new AlertMessage("🔴 DOWN: " + monitor.getName(), body);
+                """.formatted(monitor.getName(), url, incident.getCause(), since);
+        List<Field> fields = List.of(
+                new Field("URL", url),
+                new Field("Cause", incident.getCause()),
+                new Field("Since", since));
+        return new AlertMessage("🔴 DOWN: " + monitor.getName(), body, fields,
+                "You'll get another message when it recovers.");
     }
 
     public AlertMessage resolved(Monitor monitor, Incident incident) {
+        String url = safeUrl(monitor.getUrl());
+        String downFor = humanize(Duration.between(incident.getStartedAt(), incident.getResolvedAt()));
+        String from = format(incident.getStartedAt());
+        String to = format(incident.getResolvedAt());
         String body = """
                 %s is back up.
 
@@ -43,10 +55,13 @@ public class AlertMessageFactory {
                 Down for:  %s
                 From:      %s
                 To:        %s
-                """.formatted(monitor.getName(), safeUrl(monitor.getUrl()),
-                humanize(Duration.between(incident.getStartedAt(), incident.getResolvedAt())),
-                format(incident.getStartedAt()), format(incident.getResolvedAt()));
-        return new AlertMessage("✅ RECOVERED: " + monitor.getName(), body);
+                """.formatted(monitor.getName(), url, downFor, from, to);
+        List<Field> fields = List.of(
+                new Field("URL", url),
+                new Field("Down for", downFor),
+                new Field("From", from),
+                new Field("To", to));
+        return new AlertMessage("✅ RECOVERED: " + monitor.getName(), body, fields, null);
     }
 
     /** What "Send test" delivers: says plainly that nothing is wrong. */

@@ -23,6 +23,12 @@ import org.springframework.http.MediaType;
 import org.springframework.mail.MailSendException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.convention.TestBean;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.test.web.client.match.MockRestRequestMatchers;
+import org.springframework.web.client.RestClient;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -31,6 +37,12 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
@@ -87,6 +99,17 @@ class ChannelApiIntegrationTest {
 
     @MockitoBean
     JavaMailSender mailSender;
+
+    /** Slack replaced in-process: the real SlackSender runs, nothing reaches hooks.slack.com. */
+    @TestBean(name = "slackRestClient", methodName = "mockSlack")
+    RestClient slackRestClient;
+    static MockRestServiceServer slack;
+
+    static RestClient mockSlack() {
+        RestClient.Builder builder = RestClient.builder();
+        slack = MockRestServiceServer.bindTo(builder).build();
+        return builder.build();
+    }
 
     @Autowired
     MockMvc mockMvc;
@@ -306,12 +329,40 @@ class ChannelApiIntegrationTest {
     }
 
     @Test
-    void testingAChannelTypeWithNoSenderSaysSo() throws Exception {
+    void testingASlackChannelPostsATestAlertToSlack() throws Exception {
         setPlan("alice@example.com", Plan.PRO);
-        long slack = createId(alice, "SLACK", SLACK_URL);
+        long id = createId(alice, "SLACK", SLACK_URL);
+        slack.reset();
+        slack.expect(requestTo(SLACK_URL))
+                .andExpect(MockRestRequestMatchers.jsonPath("$.text").value("🔔 Test alert from PulseGuard"))
+                .andRespond(withSuccess("ok", MediaType.TEXT_PLAIN));
 
-        mockMvc.perform(post("/api/channels/" + slack + "/test").header(HttpHeaders.AUTHORIZATION, alice))
+        mockMvc.perform(post("/api/channels/" + id + "/test").header(HttpHeaders.AUTHORIZATION, alice))
+                .andExpect(status().isNoContent());
+
+        slack.verify();
+    }
+
+    @Test
+    void slackRefusingTheTestAlertIsABadGatewayWithoutTheUrl() throws Exception {
+        setPlan("alice@example.com", Plan.PRO);
+        long id = createId(alice, "SLACK", SLACK_URL);
+        slack.reset();
+        slack.expect(requestTo(SLACK_URL))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND).contentType(MediaType.TEXT_PLAIN).body("no_service"));
+
+        mockMvc.perform(post("/api/channels/" + id + "/test").header(HttpHeaders.AUTHORIZATION, alice))
+                .andExpect(status().isBadGateway())
+                .andExpect(content().string(not(containsString("secretToken123"))));
+    }
+
+    @Test
+    void testingAChannelTypeWithNoSenderSaysSo() throws Exception {
+        setPlan("alice@example.com", Plan.BUSINESS);
+        long sms = createId(alice, "SMS", "+85512345678");
+
+        mockMvc.perform(post("/api/channels/" + sms + "/test").header(HttpHeaders.AUTHORIZATION, alice))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Slack alerts can't be delivered yet."));
+                .andExpect(jsonPath("$.message").value("SMS alerts can't be delivered yet."));
     }
 }

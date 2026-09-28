@@ -1,5 +1,7 @@
 package com.viris.PulseGuard.notification;
 
+import com.viris.PulseGuard.auth.User;
+import com.viris.PulseGuard.billing.PlanLimits;
 import com.viris.PulseGuard.enumeration.ChannelType;
 import com.viris.PulseGuard.enumeration.NotificationEventType;
 import com.viris.PulseGuard.enumeration.NotificationStatus;
@@ -51,6 +53,7 @@ public class NotificationService {
     private final NotificationChannelRepository channelRepository;
     private final NotificationRepository notificationRepository;
     private final AlertMessageFactory messages;
+    private final PlanLimits planLimits;
     private final Map<ChannelType, NotificationSender> senders;
     private final TransactionTemplate readTx;
     private final TransactionTemplate writeTx;
@@ -60,12 +63,14 @@ public class NotificationService {
                                NotificationChannelRepository channelRepository,
                                NotificationRepository notificationRepository,
                                AlertMessageFactory messages,
+                               PlanLimits planLimits,
                                List<NotificationSender> senders,
                                PlatformTransactionManager transactionManager) {
         this.incidentRepository = incidentRepository;
         this.channelRepository = channelRepository;
         this.notificationRepository = notificationRepository;
         this.messages = messages;
+        this.planLimits = planLimits;
         this.senders = senders.stream()
                 .collect(Collectors.toMap(NotificationSender::type, Function.identity()));
         this.readTx = new TransactionTemplate(transactionManager);
@@ -115,7 +120,18 @@ public class NotificationService {
         AlertMessage message = eventType == NotificationEventType.OPENED
                 ? messages.opened(monitor, incident)
                 : messages.resolved(monitor, incident);
-        List<Target> targets = channelRepository.findAllByUserIdAndEnabledTrue(monitor.getUser().getId()).stream()
+        User owner = monitor.getUser();
+        List<Target> targets = channelRepository.findAllByUserIdAndEnabledTrue(owner.getId()).stream()
+                // Downgrades switch these off already; this is the server-side guarantee (rule 5)
+                // for any row that slipped past, e.g. one enabled before plan gating existed.
+                .filter(channel -> {
+                    boolean allowed = planLimits.allowsChannel(owner.getPlan(), channel.getType());
+                    if (!allowed) {
+                        log.info("Skipping {} channelId={} for incidentId={}: not on the {} plan",
+                                channel.getType(), channel.getId(), incidentId, owner.getPlan());
+                    }
+                    return allowed;
+                })
                 .map(channel -> new Target(channel.getId(), channel.getType(), channel.getTarget()))
                 .toList();
         return new Plan(message, targets);
