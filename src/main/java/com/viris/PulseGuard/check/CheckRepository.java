@@ -143,8 +143,24 @@ public interface CheckRepository extends JpaRepository<Check, Long> {
         Double getAvgMs();
     }
 
-    /** Retention job: delete raw checks older than the cutoff. */
+    /** Where the first rollup starts; null when there are no checks at all. */
+    @Query("select min(c.checkedAt) from Check c")
+    Instant oldestCheckedAt();
+
+    /**
+     * Retention: up to {@code limit} checks of one plan's monitors older than {@code cutoff}.
+     * Called in a loop, one short transaction per batch, so a large first cleanup never holds
+     * a long lock on the table new checks are written to.
+     */
     @Modifying
-    @Query("delete from Check c where c.checkedAt < :cutoff")
-    int deleteOlderThan(@Param("cutoff") Instant cutoff);
+    @Query(nativeQuery = true, value = """
+            delete from checks where id in (
+                select c.id from checks c
+                join monitors m on m.id = c.monitor_id
+                join users u on u.id = m.user_id
+                where u.plan = :plan and c.checked_at < :cutoff
+                limit :limit)
+            """)
+    int deleteBatchForPlanBefore(@Param("plan") String plan, @Param("cutoff") Instant cutoff,
+                                 @Param("limit") int limit);
 }

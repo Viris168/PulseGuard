@@ -7,6 +7,7 @@ import com.viris.PulseGuard.common.exception.StatusPageNotFoundException;
 import com.viris.PulseGuard.incident.IncidentRepository;
 import com.viris.PulseGuard.monitor.Monitor;
 import com.viris.PulseGuard.monitor.MonitorRepository;
+import com.viris.PulseGuard.stats.CheckDailyStatRepository;
 import com.viris.PulseGuard.statuspage.PublicStatusAssembler.ComponentInput;
 import com.viris.PulseGuard.statuspage.PublicStatusAssembler.DayTotals;
 import com.viris.PulseGuard.statuspage.PublicStatusAssembler.IncidentSpan;
@@ -17,7 +18,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -42,6 +46,7 @@ public class PublicStatusPageService {
     private final StatusPageRepository statusPageRepository;
     private final MonitorRepository monitorRepository;
     private final CheckRepository checkRepository;
+    private final CheckDailyStatRepository dailyStatRepository;
     private final IncidentRepository incidentRepository;
     private final PlanLimits planLimits;
     private final PublicStatusAssembler assembler;
@@ -49,12 +54,14 @@ public class PublicStatusPageService {
     public PublicStatusPageService(StatusPageRepository statusPageRepository,
                                    MonitorRepository monitorRepository,
                                    CheckRepository checkRepository,
+                                   CheckDailyStatRepository dailyStatRepository,
                                    IncidentRepository incidentRepository,
                                    PlanLimits planLimits,
                                    PublicStatusAssembler assembler) {
         this.statusPageRepository = statusPageRepository;
         this.monitorRepository = monitorRepository;
         this.checkRepository = checkRepository;
+        this.dailyStatRepository = dailyStatRepository;
         this.incidentRepository = incidentRepository;
         this.planLimits = planLimits;
         this.assembler = assembler;
@@ -89,10 +96,7 @@ public class PublicStatusPageService {
         List<IncidentSpan> incidents = List.of();
         if (!inputs.isEmpty()) {
             List<Long> ids = inputs.stream().map(ComponentInput::monitorId).toList();
-            totals = checkRepository.bucketTotalsForMonitors(ids, from, now, PublicStatusAssembler.DAY.toSeconds())
-                    .stream()
-                    .map(r -> new DayTotals(r.getMonitorId(), r.getIdx(), r.getTotal(), r.getUp()))
-                    .toList();
+            totals = dayTotals(ids, from, now);
             Instant earliest = from.isBefore(incidentsFrom) ? from : incidentsFrom;
             incidents = incidentRepository.findOverlappingForMonitors(ids, earliest, now).stream()
                     .map(i -> new IncidentSpan(i.getId(), i.getMonitor().getId(), i.getStatus(),
@@ -102,5 +106,38 @@ public class PublicStatusPageService {
 
         return assembler.assemble(page.getTitle(), page.getDescription(), historyDays,
                 from, now, incidentsFrom, inputs, totals, incidents);
+    }
+
+    /**
+     * One total per monitor per day. Days already summarised come from check_daily_stats, since
+     * raw checks are deleted after a while; the rest (today, and yesterday until the nightly run)
+     * from raw checks. Indexes are day offsets from {@code from}, as the assembler expects.
+     */
+    private List<DayTotals> dayTotals(List<Long> ids, Instant from, Instant now) {
+        LocalDate fromDay = from.atZone(ZoneOffset.UTC).toLocalDate();
+        LocalDate today = now.atZone(ZoneOffset.UTC).toLocalDate();
+        LocalDate latest = dailyStatRepository.latestDay();
+        LocalDate rawFromDay = latest == null ? fromDay : latest.plusDays(1);
+        if (rawFromDay.isBefore(fromDay)) {
+            rawFromDay = fromDay;
+        }
+        if (rawFromDay.isAfter(today)) {
+            rawFromDay = today;
+        }
+
+        List<DayTotals> totals = new ArrayList<>();
+        if (rawFromDay.isAfter(fromDay)) {
+            for (CheckDailyStatRepository.DailyTotalsRow r : dailyStatRepository.dailyTotalsForMonitors(ids, fromDay, rawFromDay)) {
+                int index = (int) ChronoUnit.DAYS.between(fromDay, r.getDay());
+                totals.add(new DayTotals(r.getMonitorId(), index, r.getTotal(), r.getTotal() - r.getFailed()));
+            }
+        }
+        int offset = (int) ChronoUnit.DAYS.between(fromDay, rawFromDay);
+        Instant rawFrom = rawFromDay.atStartOfDay(ZoneOffset.UTC).toInstant();
+        for (CheckRepository.MonitorBucketRow r : checkRepository.bucketTotalsForMonitors(ids, rawFrom, now,
+                PublicStatusAssembler.DAY.toSeconds())) {
+            totals.add(new DayTotals(r.getMonitorId(), offset + r.getIdx(), r.getTotal(), r.getUp()));
+        }
+        return totals;
     }
 }

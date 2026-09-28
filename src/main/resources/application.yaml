@@ -133,6 +133,14 @@ pulseguard:
     ping-base-url: ${PULSEGUARD_PING_BASE_URL:http://localhost:8080}
     # How often overdue heartbeats are looked for: the worst-case delay before a miss is noticed.
     sweep-interval: ${PULSEGUARD_HEARTBEAT_SWEEP_INTERVAL:30s}
+  housekeeping:
+    # Nightly: summarise yesterday's checks into check_daily_stats, then delete history past
+    # each plan's limit. Raw checks and pings are kept raw-check-days at most (>= 60: the
+    # dashboard reads 30 days plus the 30 before); summaries for the plan's full history.
+    enabled: ${PULSEGUARD_HOUSEKEEPING_ENABLED:true}
+    cron: "0 15 3 * * ?"
+    raw-check-days: 62
+    batch-size: 5000
   status-page:
     # How long a rendered public status page is served; saving the page evicts it at once.
     cache-ttl: ${PULSEGUARD_STATUS_PAGE_CACHE_TTL:60s}

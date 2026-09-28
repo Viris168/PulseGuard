@@ -133,9 +133,18 @@ public interface NotificationSender {
 - Webhook events stored by `stripe_event_id` to process each event only once.
 - Exposes a `PlanLimits` lookup used by Monitor Service for feature gating.
 
-### 3.9 Housekeeping Jobs
-- **Rollup job (daily):** aggregates raw `checks` into `check_daily_stats` (uptime %, avg/p95 response time).
-- **Retention job (daily):** deletes raw checks older than the plan's retention window.
+### 3.9 Housekeeping Job
+One nightly Quartz job (`HousekeepingJob`, 03:15 UTC, clustered: runs on one node), in this order:
+- **Rollup:** summarises each UTC day of raw `checks` into `check_daily_stats` (total, failed,
+  avg/p95 response time of passing checks). Catches up on missed days, always redoes yesterday,
+  and is safe to re-run (upsert).
+- **Retention:** per plan, raw `checks` and heartbeat `pings` are kept `min(plan history,
+  raw-check-days = 62)` days; daily summaries the plan's full history (Free 7, Pro 90, Business
+  365). Raw checks are never deleted from a day not yet summarised. Deletes run in small batches,
+  one short transaction each.
+
+The dashboard reads raw checks (up to 30 days plus the 30 before, hence `raw-check-days >= 60`);
+the public status page reads summaries for past days and raw checks only for days not yet summarised.
 
 ---
 
