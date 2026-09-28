@@ -43,7 +43,10 @@ public class ScheduleReconciler implements ApplicationRunner {
 
     void reconcile() {
         // 1. What SHOULD exist. Keep the Monitor objects: scheduling needs the real interval.
-        List<Monitor> activeMonitors = monitorRepository.findAllByActiveTrue();
+        // Heartbeats never have a check job, so they count as "should not exist" here.
+        List<Monitor> activeMonitors = monitorRepository.findAllByActiveTrue().stream()
+                .filter(monitor -> !monitor.isHeartbeat())
+                .toList();
         Set<Long> activeIds = activeMonitors.stream()
                 .map(Monitor::getId)
                 .collect(Collectors.toSet());

@@ -39,6 +39,11 @@ public class SchedulerService {
 
     @Transactional
     public void schedule(Monitor monitor) {
+        if (monitor.isHeartbeat()) {
+            // Nothing to poll: heartbeats are watched by the sweep job, never by a check job.
+            unschedule(monitor.getId());
+            return;
+        }
         JobDetail job = buildJob(monitor);
         // Step 2: build the trigger
         Trigger trigger = buildTrigger(monitor);
@@ -66,6 +71,10 @@ public class SchedulerService {
 
     @Transactional
     public void reschedule(Monitor monitor) {
+        if (monitor.isHeartbeat()) {
+            unschedule(monitor.getId());
+            return;
+        }
         try {
             Date nextFire = scheduler.rescheduleJob(triggerKey(monitor.getId()), buildTrigger(monitor));
             if (nextFire == null) {

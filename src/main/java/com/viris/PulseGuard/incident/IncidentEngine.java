@@ -3,10 +3,13 @@ package com.viris.PulseGuard.incident;
 import com.viris.PulseGuard.check.Check;
 import com.viris.PulseGuard.check.CheckRepository;
 import com.viris.PulseGuard.enumeration.CheckResult;
+import com.viris.PulseGuard.enumeration.ErrorType;
+import com.viris.PulseGuard.enumeration.IncidentAction;
 import com.viris.PulseGuard.enumeration.IncidentStatus;
 import com.viris.PulseGuard.incident.dto.IncidentOpenedEvent;
 import com.viris.PulseGuard.incident.dto.IncidentResolvedEvent;
 import com.viris.PulseGuard.incident.dto.Transition;
+import com.viris.PulseGuard.heartbeat.HeartbeatSchedule;
 import com.viris.PulseGuard.monitor.Monitor;
 import com.viris.PulseGuard.monitor.MonitorRepository;
 import org.slf4j.Logger;
@@ -73,7 +76,75 @@ public class IncidentEngine {
         }
     }
 
+    /**
+     * A heartbeat's ping, in the caller's transaction (which has saved the ping itself). Records
+     * it as a passing check, so uptime, status bars and the status page count it like any check.
+     */
+    @Transactional
+    public void heartbeatReceived(Long monitorId, Instant at) {
+        Monitor monitor = monitorRepository.findById(monitorId).orElse(null);
+        if (monitor == null || !monitor.isHeartbeat()) {
+            return;
+        }
+        Check pass = new Check();
+        pass.setMonitor(monitor);
+        pass.setResult(CheckResult.UP);
+        pass.setCheckedAt(at);
+        checkRepository.save(pass);
+
+        Transition transition = stateMachine.heartbeatPinged(monitor.getState());
+        apply(monitor, transition);
+        monitor.setLastCheckedAt(at);
+        monitor.setPingDeadline(HeartbeatSchedule.deadlineAfter(at, monitor));
+        if (transition.action() == IncidentAction.RESOLVE) {
+            resolve(monitorId, pass);
+        }
+    }
+
+    /**
+     * A heartbeat whose deadline passed by {@code now}. Re-checked here, inside the transaction,
+     * because a ping may have landed since the sweeper picked it; @Version settles the race.
+     */
+    @Transactional
+    public void heartbeatMissed(Long monitorId, Instant now) {
+        Monitor monitor = monitorRepository.findById(monitorId).orElse(null);
+        if (monitor == null || !monitor.isHeartbeat() || !monitor.isActive()
+                || monitor.getPingDeadline() == null || monitor.getPingDeadline().isAfter(now)) {
+            return;
+        }
+        Instant missedAt = monitor.getPingDeadline();
+        String message = HeartbeatSchedule.missedMessage(monitor);
+        Check miss = new Check();
+        miss.setMonitor(monitor);
+        miss.setResult(CheckResult.DOWN);
+        miss.setErrorType(ErrorType.TIMEOUT);
+        miss.setErrorMessage(message);
+        miss.setCheckedAt(missedAt);
+        checkRepository.save(miss);
+
+        Transition transition = stateMachine.heartbeatMissed(monitor.getState(), monitor.getConsecutiveFailures());
+        apply(monitor, transition);
+        monitor.setPingDeadline(HeartbeatSchedule.nextDeadlineAfterMiss(missedAt, monitor, now));
+        if (transition.action() == IncidentAction.OPEN) {
+            // The outage starts at the missed deadline, and the cause is said plainly: there is
+            // no error type to show for silence.
+            openIncident(monitor, message, missedAt);
+        } else {
+            log.debug("Heartbeat still missing for monitorId={}", monitorId);
+        }
+    }
+
+    private static void apply(Monitor monitor, Transition transition) {
+        monitor.setState(transition.state());
+        monitor.setConsecutiveFailures(transition.consecutiveFailures());
+        monitor.setConsecutiveSuccesses(transition.consecutiveSuccesses());
+    }
+
     private void open(Monitor monitor, Check check, int failuresInStreak) {
+        openIncident(monitor, describe(check), firstFailureAt(monitor.getId(), failuresInStreak, check));
+    }
+
+    private void openIncident(Monitor monitor, String cause, Instant startedAt) {
         Long monitorId = monitor.getId();
         // Idempotent: the partial unique index would reject a second open incident and roll
         // back the whole transaction, state change included.
@@ -84,8 +155,8 @@ public class IncidentEngine {
 
         Incident incident = new Incident();
         incident.setMonitor(monitor);
-        incident.setCause(describe(check));
-        incident.setStartedAt(firstFailureAt(monitorId, failuresInStreak, check));
+        incident.setCause(cause);
+        incident.setStartedAt(startedAt);
         incidentRepository.save(incident);
 
         events.publishEvent(new IncidentOpenedEvent(incident.getId(), monitorId));

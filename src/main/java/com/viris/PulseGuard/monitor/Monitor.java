@@ -57,8 +57,25 @@ public class Monitor {
     @Column(name = "is_active", nullable = false)
     private boolean active = true;
 
+    /** For heartbeats: when the last ping arrived. */
     @Column(name = "last_checked_at")
     private Instant lastCheckedAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private MonitorType type = MonitorType.HTTP;
+
+    /** Heartbeat only: how late a ping may be before it counts as missed. */
+    @Column(name = "grace_seconds")
+    private Integer graceSeconds;
+
+    /** Heartbeat only: the secret in the ping URL. */
+    @Column(name = "heartbeat_token", unique = true, length = 64)
+    private String heartbeatToken;
+
+    /** Heartbeat only: missed if no ping arrives by then. Null until the first ping. */
+    @Column(name = "ping_deadline")
+    private Instant pingDeadline;
 
     @Version
     private long version;
@@ -68,4 +85,8 @@ public class Monitor {
     @Generated(event = EventType.INSERT)
     @Column(name = "created_at", nullable = false, updatable = false, insertable = false)
     private Instant createdAt;
+
+    public boolean isHeartbeat() {
+        return type == MonitorType.HEARTBEAT;
+    }
 }

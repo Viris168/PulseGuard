@@ -69,4 +69,22 @@ public class MonitorStateMachine {
             }
         };
     }
+
+    /**
+     * A heartbeat's ping arrived. Pings are the job itself reporting in, not a sample of it,
+     * so there is no recovery threshold: one ping is proof it runs again.
+     */
+    public Transition heartbeatPinged(MonitorState state) {
+        boolean incidentOpen = state == MonitorState.DOWN || state == MonitorState.RECOVERING;
+        return new Transition(MonitorState.UP, 0, 0, incidentOpen ? IncidentAction.RESOLVE : IncidentAction.NONE);
+    }
+
+    /**
+     * A heartbeat's deadline passed with no ping. Down at once: the grace period already
+     * was the benefit of the doubt that the failure threshold gives HTTP checks.
+     */
+    public Transition heartbeatMissed(MonitorState state, int failures) {
+        boolean incidentOpen = state == MonitorState.DOWN || state == MonitorState.RECOVERING;
+        return new Transition(MonitorState.DOWN, failures + 1, 0, incidentOpen ? IncidentAction.NONE : IncidentAction.OPEN);
+    }
 }

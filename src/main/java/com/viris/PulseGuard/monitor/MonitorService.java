@@ -10,7 +10,12 @@ import com.viris.PulseGuard.check.dto.UptimeRow;
 import com.viris.PulseGuard.common.exception.MonitorNotFoundException;
 import com.viris.PulseGuard.common.exception.PlanLimitExceededException;
 import com.viris.PulseGuard.common.net.SafeUrlValidator;
+import com.viris.PulseGuard.common.exception.InvalidMonitorException;
+import com.viris.PulseGuard.enumeration.MonitorState;
+import com.viris.PulseGuard.enumeration.MonitorType;
 import com.viris.PulseGuard.enumeration.Plan;
+import com.viris.PulseGuard.heartbeat.HeartbeatSchedule;
+import com.viris.PulseGuard.heartbeat.PingUrls;
 import com.viris.PulseGuard.monitor.dto.MonitorRequest;
 import com.viris.PulseGuard.monitor.dto.MonitorResponse;
 import com.viris.PulseGuard.monitor.dto.MonitorSummaryResponse;
@@ -40,6 +45,7 @@ public class MonitorService {
     private final SafeUrlValidator urlValidator;
     private final SchedulerService schedulerService;
     private final CheckRepository checkRepository;
+    private final PingUrls pingUrls;
 
     /** Length of the mini status bar on the monitors page. */
     static final int RECENT_CHECKS = 30;
@@ -49,41 +55,57 @@ public class MonitorService {
                           PlanLimits planLimits,
                           SafeUrlValidator urlValidator,
                           SchedulerService schedulerService,
-                          CheckRepository checkRepository) {
+                          CheckRepository checkRepository,
+                          PingUrls pingUrls) {
         this.monitorRepository = monitorRepository;
         this.userRepository = userRepository;
         this.planLimits = planLimits;
         this.urlValidator = urlValidator;
         this.schedulerService = schedulerService;
         this.checkRepository = checkRepository;
+        this.pingUrls = pingUrls;
     }
 
     @Transactional
     public MonitorResponse createMonitor(Long userId, MonitorRequest request) {
         User user = requireUser(userId);
         Plan plan = user.getPlan();
+        boolean heartbeat = request.typeOrDefault() == MonitorType.HEARTBEAT;
 
-        urlValidator.validate(request.url());
-
+        // Heartbeats have no URL of ours to call, so no SSRF check and no polling cost: the
+        // plan's minimum interval is about how often we poll, not how often their job runs.
+        if (!heartbeat) {
+            urlValidator.validate(request.url());
+        }
         int maxMonitors = planLimits.maxMonitors(plan);
         if (monitorRepository.countByUserId(userId) >= maxMonitors) {
             throw PlanLimitExceededException.atMost(plan, "monitors", maxMonitors);
         }
-        requireAllowedInterval(plan, request.intervalSeconds());
+        if (!heartbeat) {
+            requireAllowedInterval(plan, request.intervalSeconds());
+        }
 
         Monitor monitor = new Monitor();
         monitor.setUser(user);
+        monitor.setType(request.typeOrDefault());
+        if (heartbeat) {
+            monitor.setHeartbeatToken(HeartbeatSchedule.newToken());
+        }
         applyRequest(monitor, request);
         monitorRepository.save(monitor);
-        schedulerService.schedule(monitor);
+        // A heartbeat has nothing to schedule: the sweeper watches its deadline, which is set
+        // by the first ping.
+        if (!heartbeat) {
+            schedulerService.schedule(monitor);
+        }
 
-        log.info("Created monitorId={} for userId={}", monitor.getId(), userId);
-        return MonitorResponse.from(monitor);
+        log.info("Created {} monitorId={} for userId={}", monitor.getType(), monitor.getId(), userId);
+        return toResponse(monitor);
     }
 
     @Transactional(readOnly = true)
     public MonitorResponse getMonitor(Long userId, Long monitorId) {
-        return MonitorResponse.from(requireOwnedMonitor(userId, monitorId));
+        return toResponse(requireOwnedMonitor(userId, monitorId));
     }
 
     @Transactional(readOnly = true)
@@ -106,7 +128,7 @@ public class MonitorService {
             Double uptime24h = monitor.isActive() && uptime.containsKey(monitor.getId())
                     ? uptime.get(monitor.getId()).uptimePct()
                     : null;
-            return MonitorSummaryResponse.from(monitor, uptime24h,
+            return MonitorSummaryResponse.from(monitor, pingUrls.of(monitor), uptime24h,
                     last == null ? null : last.getResponseTimeMs(),
                     last == null ? null : last.getStatusCode(),
                     rows.stream().map(row -> "UP".equals(row.getResult())).toList());
@@ -143,6 +165,15 @@ public class MonitorService {
     @Transactional
     public MonitorResponse updateMonitor(Long userId, Long monitorId, MonitorRequest request) {
         Monitor monitor = requireOwnedMonitor(userId, monitorId);
+        if (request.typeOrDefault() != monitor.getType()) {
+            throw new InvalidMonitorException("type", "A monitor's type can't be changed. Create a new monitor instead.");
+        }
+        if (monitor.isHeartbeat()) {
+            applyRequest(monitor, request);
+            realignDeadline(monitor);
+            log.info("Updated monitorId={} for userId={}", monitorId, userId);
+            return toResponse(monitor);
+        }
         Plan plan = monitor.getUser().getPlan();
 
         // Re-validate only on change: an unchanged URL was cleared when it was saved,
@@ -165,7 +196,7 @@ public class MonitorService {
         }
 
         log.info("Updated monitorId={} for userId={}", monitorId, userId);
-        return MonitorResponse.from(monitor);
+        return toResponse(monitor);
     }
 
     /** Pausing keeps history and incident state, and removes the monitor's check job. */
@@ -189,6 +220,15 @@ public class MonitorService {
     private MonitorResponse setActive(Long userId, Long monitorId, boolean active) {
         Monitor monitor = requireOwnedMonitor(userId, monitorId);
         monitor.setActive(active);
+        if (monitor.isHeartbeat()) {
+            // Nothing to (un)schedule. Resuming gives the job a full period from now, instead of
+            // declaring it missed for the time it was paused.
+            if (active && monitor.getLastCheckedAt() != null) {
+                monitor.setPingDeadline(HeartbeatSchedule.deadlineAfter(Instant.now(), monitor));
+            }
+            log.info("{} monitorId={} for userId={}", active ? "Resumed" : "Paused", monitorId, userId);
+            return toResponse(monitor);
+        }
         // After the ownership check: another tenant's id has already become a 404 here.
         // Resume schedules from scratch, because pausing deleted the job.
         if (active) {
@@ -197,15 +237,42 @@ public class MonitorService {
             schedulerService.unschedule(monitorId);
         }
         log.info("{} monitorId={} for userId={}", active ? "Resumed" : "Paused", monitorId, userId);
-        return MonitorResponse.from(monitor);
+        return toResponse(monitor);
     }
 
+    private MonitorResponse toResponse(Monitor monitor) {
+        return MonitorResponse.from(monitor, pingUrls.of(monitor));
+    }
+
+    /**
+     * After a heartbeat's schedule changes: the next deadline follows from the last ping. A
+     * monitor that is already down is not re-declared missed for the same silence; its next
+     * deadline moves ahead of now instead.
+     */
+    private static void realignDeadline(Monitor monitor) {
+        if (monitor.getLastCheckedAt() == null) {
+            return;
+        }
+        Instant deadline = HeartbeatSchedule.deadlineAfter(monitor.getLastCheckedAt(), monitor);
+        Instant now = Instant.now();
+        if (monitor.getState() == MonitorState.DOWN && !deadline.isAfter(now)) {
+            deadline = HeartbeatSchedule.nextDeadlineAfterMiss(deadline, monitor, now);
+        }
+        monitor.setPingDeadline(deadline);
+    }
+
+    /** HTTP-only fields keep their defaults on a heartbeat (the columns are NOT NULL). */
     private void applyRequest(Monitor monitor, MonitorRequest request) {
         monitor.setName(request.name());
+        monitor.setIntervalSeconds(request.intervalSeconds());
+        if (monitor.isHeartbeat()) {
+            monitor.setUrl("");
+            monitor.setGraceSeconds(request.graceSeconds());
+            return;
+        }
         monitor.setUrl(request.url());
         monitor.setMethod(request.method());
         monitor.setExpectedStatus(request.expectedStatus());
-        monitor.setIntervalSeconds(request.intervalSeconds());
         monitor.setTimeoutMs(request.timeoutMs());
     }
 

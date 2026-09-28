@@ -98,6 +98,36 @@ public class GlobalExceptionHandler {
                         Map.of("slug", "That address is already taken")));
     }
 
+    @ExceptionHandler(ApiKeyNotFoundException.class)
+    public ResponseEntity<ApiError> handleApiKeyNotFound(ApiKeyNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiError.of(HttpStatus.NOT_FOUND.value(), ex.getMessage()));
+    }
+
+    @ExceptionHandler(ApiKeyRuleException.class)
+    public ResponseEntity<ApiError> handleApiKeyRule(ApiKeyRuleException ex) {
+        return ResponseEntity.status(ex.getStatus())
+                .body(ApiError.of(ex.getStatus().value(), ex.getMessage(), ex.getFieldErrors()));
+    }
+
+    @ExceptionHandler(InvalidMonitorException.class)
+    public ResponseEntity<ApiError> handleInvalidMonitor(InvalidMonitorException ex) {
+        return ResponseEntity.badRequest()
+                .body(ApiError.of(HttpStatus.BAD_REQUEST.value(), ex.getMessage(), ex.getFieldErrors()));
+    }
+
+    @ExceptionHandler(HeartbeatNotFoundException.class)
+    public ResponseEntity<ApiError> handleHeartbeatNotFound(HeartbeatNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiError.of(HttpStatus.NOT_FOUND.value(), ex.getMessage()));
+    }
+
+    @ExceptionHandler(MonitorPausedException.class)
+    public ResponseEntity<ApiError> handleMonitorPaused(MonitorPausedException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiError.of(HttpStatus.CONFLICT.value(), ex.getMessage()));
+    }
+
     @ExceptionHandler(InvalidMonitorUrlException.class)
     public ResponseEntity<ApiError> handleInvalidMonitorUrl(InvalidMonitorUrlException ex) {
         return ResponseEntity.badRequest()

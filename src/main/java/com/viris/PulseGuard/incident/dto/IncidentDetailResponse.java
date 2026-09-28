@@ -22,13 +22,10 @@ public record IncidentDetailResponse(
         int intervalSeconds,
         List<TimelineEvent> timeline
 ) {
-    /** Only HTTP monitors exist on the backend so far; heartbeat monitors are a later feature. */
-    private static final String HTTP = "HTTP";
-
     public static IncidentDetailResponse from(Incident incident, List<TimelineEvent> timeline) {
         Monitor monitor = incident.getMonitor();
         return new IncidentDetailResponse(incident.getId(), monitor.getId(), monitor.getName(),
                 incident.getStatus(), incident.getCause(), incident.getStartedAt(), incident.getResolvedAt(),
-                HTTP, monitor.getUrl(), monitor.getMethod(), monitor.getIntervalSeconds(), timeline);
+                monitor.getType().name(), monitor.getUrl(), monitor.getMethod(), monitor.getIntervalSeconds(), timeline);
     }
 }

@@ -1,6 +1,9 @@
 package com.viris.PulseGuard.monitor;
 
 import com.viris.PulseGuard.auth.User;
+import java.time.Duration;
+import com.viris.PulseGuard.heartbeat.HeartbeatProperties;
+import com.viris.PulseGuard.heartbeat.PingUrls;
 import com.viris.PulseGuard.auth.UserRepository;
 import com.viris.PulseGuard.check.CheckRepository;
 import com.viris.PulseGuard.billing.PlanLimits;
@@ -56,14 +59,15 @@ class MonitorServiceTest {
     void setUp() {
         // PlanLimits is a pure lookup — exercise the real limits, not a stub.
         service = new MonitorService(monitorRepository, userRepository, new PlanLimits(), urlValidator,
-                schedulerService, checkRepository);
+                schedulerService, checkRepository,
+                new PingUrls(new HeartbeatProperties("https://ping.test", Duration.ofSeconds(30))));
         owner = new User();
         owner.setEmail("owner@example.com");
         owner.setPlan(Plan.PRO);
     }
 
     private MonitorRequest request(String url, int intervalSeconds) {
-        return new MonitorRequest("API health", url, "GET", 200, intervalSeconds, 5000);
+        return new MonitorRequest(null, "API health", url, "GET", 200, intervalSeconds, 5000, null);
     }
 
     private MonitorRequest request() {

@@ -314,12 +314,17 @@ sequenceDiagram
 | POST | `/api/monitors/{id}/resume` | Resume monitoring |
 | GET | `/api/monitors/{id}/checks?from=&to=` | Check history |
 | GET | `/api/monitors/{id}/stats?range=24h\|7d\|30d` | Uptime %, response times |
+| GET | `/api/monitors/{id}/pings?from=&to=` | Heartbeat ping history |
+| POST | `/api/monitors/{id}/test-ping` | Record a test ping (heartbeats) |
+| GET / POST / HEAD | `/api/ping/{token}` | Heartbeat ping from the user's job (no auth; the token is the credential) |
 | GET | `/api/incidents?status=OPEN` | Incident list |
 | GET | `/api/incidents/{id}` | Incident detail |
 | GET | `/api/channels` / POST | List / add alert channels |
 | PATCH | `/api/channels/{id}` / DELETE | Enable, disable or delete a channel |
 | POST | `/api/channels/{id}/test` | Send a test alert |
 | PATCH | `/api/auth/me` | Change my name |
+| GET | `/api/api-keys` / POST | List / create personal API keys (session only; the key is returned once) |
+| DELETE | `/api/api-keys/{id}` | Revoke a key (session only) |
 | GET | `/api/status-page` / PUT | My status page (204 until created) / create or replace it |
 | GET | `/api/billing/subscription` | My plan, live subscription status and usage |
 | POST | `/api/billing/checkout` | Start Stripe Checkout (Free accounts only; subscribers use the portal) |

@@ -70,7 +70,10 @@ public class PlanChangeService {
     }
 
     private int slowDownMonitors(Long userId, int minIntervalSeconds) {
-        var monitors = monitorRepository.findAllByUserIdAndIntervalSecondsLessThan(userId, minIntervalSeconds);
+        // Heartbeats are left alone: their period is how often the user's job runs, not how
+        // often we poll, so the plan's polling minimum does not apply to them.
+        var monitors = monitorRepository.findAllByUserIdAndIntervalSecondsLessThan(userId, minIntervalSeconds)
+                .stream().filter(monitor -> !monitor.isHeartbeat()).toList();
         for (Monitor monitor : monitors) {
             // Entity edit, not a bulk update: @Version must catch a check saving the same row.
             monitor.setIntervalSeconds(minIntervalSeconds);

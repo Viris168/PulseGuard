@@ -2,6 +2,7 @@ package com.viris.PulseGuard.notification;
 
 import com.viris.PulseGuard.common.config.AppProperties;
 import com.viris.PulseGuard.enumeration.AlertLevel;
+import com.viris.PulseGuard.heartbeat.HeartbeatSchedule;
 import com.viris.PulseGuard.incident.Incident;
 import com.viris.PulseGuard.monitor.Monitor;
 import com.viris.PulseGuard.notification.dto.AlertMessage;
@@ -32,6 +33,9 @@ public class AlertMessageFactory {
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss 'UTC'").withZone(ZoneOffset.UTC);
 
     public AlertMessage opened(Monitor monitor, Incident incident) {
+        if (monitor.isHeartbeat()) {
+            return heartbeatMissed(monitor, incident);
+        }
         String url = safeUrl(monitor.getUrl());
         String since = format(incident.getStartedAt());
         String body = """
@@ -52,6 +56,9 @@ public class AlertMessageFactory {
     }
 
     public AlertMessage resolved(Monitor monitor, Incident incident) {
+        if (monitor.isHeartbeat()) {
+            return heartbeatBack(monitor, incident);
+        }
         String url = safeUrl(monitor.getUrl());
         String downFor = humanize(Duration.between(incident.getStartedAt(), incident.getResolvedAt()));
         String from = format(incident.getStartedAt());
@@ -67,6 +74,49 @@ public class AlertMessageFactory {
         List<Field> fields = List.of(
                 new Field("URL", url),
                 new Field("Down for", downFor),
+                new Field("From", from, incident.getStartedAt()),
+                new Field("To", to, incident.getResolvedAt()));
+        return new AlertMessage("✅ RECOVERED: " + monitor.getName(), body, AlertLevel.RESOLVED, fields, null,
+                incidentLink(incident));
+    }
+
+    /** A heartbeat has no URL of ours to show; what matters is the schedule it broke. */
+    private AlertMessage heartbeatMissed(Monitor monitor, Incident incident) {
+        String expected = "a ping every " + HeartbeatSchedule.describe(monitor);
+        String lastPing = monitor.getLastCheckedAt() == null ? "never" : format(monitor.getLastCheckedAt());
+        String since = format(incident.getStartedAt());
+        String body = """
+                %s missed its check-in.
+
+                Expected:  %s
+                Last ping: %s
+                Since:     %s
+
+                You'll get another email when it pings again.
+                """.formatted(monitor.getName(), expected, lastPing, since);
+        List<Field> fields = List.of(
+                new Field("Expected", expected),
+                monitor.getLastCheckedAt() == null
+                        ? new Field("Last ping", lastPing)
+                        : new Field("Last ping", lastPing, monitor.getLastCheckedAt()),
+                new Field("Since", since, incident.getStartedAt()));
+        return new AlertMessage("🔴 DOWN: " + monitor.getName(), body, AlertLevel.CRITICAL, fields,
+                "You'll get another message when it pings again.", incidentLink(incident));
+    }
+
+    private AlertMessage heartbeatBack(Monitor monitor, Incident incident) {
+        String silentFor = humanize(Duration.between(incident.getStartedAt(), incident.getResolvedAt()));
+        String from = format(incident.getStartedAt());
+        String to = format(incident.getResolvedAt());
+        String body = """
+                %s checked in again.
+
+                Silent for: %s
+                From:       %s
+                To:         %s
+                """.formatted(monitor.getName(), silentFor, from, to);
+        List<Field> fields = List.of(
+                new Field("Silent for", silentFor),
                 new Field("From", from, incident.getStartedAt()),
                 new Field("To", to, incident.getResolvedAt()));
         return new AlertMessage("✅ RECOVERED: " + monitor.getName(), body, AlertLevel.RESOLVED, fields, null,

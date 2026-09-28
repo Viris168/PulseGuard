@@ -26,6 +26,7 @@ function useCopy() {
 
 export function ApiKeysSection() {
   const [keys, setKeys] = useState<ApiKey[] | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [nameError, setNameError] = useState<string | null>(null)
   const [banner, setBanner] = useState<string | null>(null)
@@ -33,10 +34,13 @@ export function ApiKeysSection() {
   const [created, setCreated] = useState<CreatedApiKey | null>(null)
   const [toRevoke, setToRevoke] = useState<ApiKey | null>(null)
   const [revoking, setRevoking] = useState(false)
+  const [revokeError, setRevokeError] = useState<string | null>(null)
   const [copied, copy] = useCopy()
 
   useEffect(() => {
-    listApiKeys().then(setKeys)
+    listApiKeys()
+      .then(setKeys)
+      .catch((e: unknown) => setLoadError(e instanceof Error ? e.message : 'Failed to load keys'))
   }, [])
 
   async function onCreate(e: FormEvent) {
@@ -62,11 +66,14 @@ export function ApiKeysSection() {
   async function confirmRevoke() {
     if (!toRevoke) return
     setRevoking(true)
+    setRevokeError(null)
     try {
       await revokeApiKey(toRevoke.id)
       setKeys((k) => k?.filter((x) => x.id !== toRevoke.id) ?? null)
       if (created?.apiKey.id === toRevoke.id) setCreated(null)
       setToRevoke(null)
+    } catch (err) {
+      setRevokeError(err instanceof Error ? err.message : 'Could not revoke key')
     } finally {
       setRevoking(false)
     }
@@ -78,7 +85,7 @@ export function ApiKeysSection() {
     <div className="space-y-6">
       <SettingsCard
         title="API keys"
-        description="Call the PulseGuard API from scripts, CI or Terraform. A key can do anything you can, so treat it like a password."
+        description="Call the PulseGuard API from scripts, CI or Terraform. A key acts as you on everything except keys, password and billing, so treat it like a password."
         onSubmit={onCreate}
         error={banner}
         footer={
@@ -129,7 +136,9 @@ export function ApiKeysSection() {
       )}
 
       <SettingsCard title="Your keys">
-        {!keys ? (
+        {loadError ? (
+          <p className="text-sm text-red-600 dark:text-red-400">{loadError}</p>
+        ) : !keys ? (
           <div className="flex justify-center py-6 text-zinc-400">
             <Spinner />
           </div>
@@ -157,7 +166,10 @@ export function ApiKeysSection() {
         )}
       </SettingsCard>
 
-      <SettingsCard title="Using a key" description="Send it as a bearer token. Same endpoints and limits as the app.">
+      <SettingsCard
+        title="Using a key"
+        description="Send it as a bearer token. Same endpoints and limits as the app; managing keys, your password and billing need you signed in."
+      >
         <pre className="overflow-x-auto rounded-lg bg-zinc-950 p-3 text-xs leading-relaxed text-zinc-100">
           <code>{example}</code>
         </pre>
@@ -165,7 +177,11 @@ export function ApiKeysSection() {
 
       <Modal
         open={!!toRevoke}
-        onClose={() => !revoking && setToRevoke(null)}
+        onClose={() => {
+          if (revoking) return
+          setToRevoke(null)
+          setRevokeError(null)
+        }}
         title="Revoke this key?"
         footer={
           <>
@@ -180,6 +196,11 @@ export function ApiKeysSection() {
       >
         Anything using <strong className="font-medium text-zinc-900 dark:text-zinc-100">{toRevoke?.name}</strong> will stop working
         immediately. This can't be undone.
+        {revokeError && (
+          <p className="mt-3 text-red-600 dark:text-red-400" role="alert">
+            {revokeError}
+          </p>
+        )}
       </Modal>
     </div>
   )

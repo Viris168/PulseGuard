@@ -1,6 +1,7 @@
 package com.viris.PulseGuard.monitor.dto;
 
 import com.viris.PulseGuard.enumeration.MonitorState;
+import com.viris.PulseGuard.enumeration.MonitorType;
 import com.viris.PulseGuard.monitor.Monitor;
 
 import java.time.Instant;
@@ -25,16 +26,21 @@ public record MonitorSummaryResponse(
         Boolean isActive,
         Instant lastCheckedAt,
         Instant createdAt,
+        MonitorType type,
+        Integer graceSeconds,
+        String pingUrl,
         Double uptime24h,
         Integer lastResponseTimeMs,
         Integer lastStatusCode,
         List<Boolean> recentChecks
 ) {
-    public static MonitorSummaryResponse from(Monitor monitor, Double uptime24h, Integer lastResponseTimeMs,
-                                              Integer lastStatusCode, List<Boolean> recentChecks) {
+    public static MonitorSummaryResponse from(Monitor monitor, String pingUrl, Double uptime24h,
+                                              Integer lastResponseTimeMs, Integer lastStatusCode,
+                                              List<Boolean> recentChecks) {
         return new MonitorSummaryResponse(monitor.getId(), monitor.getName(), monitor.getUrl(),
                 monitor.getMethod(), monitor.getExpectedStatus(), monitor.getIntervalSeconds(),
                 monitor.getTimeoutMs(), monitor.getState(), monitor.isActive(), monitor.getLastCheckedAt(),
-                monitor.getCreatedAt(), uptime24h, lastResponseTimeMs, lastStatusCode, recentChecks);
+                monitor.getCreatedAt(), monitor.getType(), monitor.getGraceSeconds(), pingUrl,
+                uptime24h, lastResponseTimeMs, lastStatusCode, recentChecks);
     }
 }

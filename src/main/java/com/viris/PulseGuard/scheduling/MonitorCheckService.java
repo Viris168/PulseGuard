@@ -56,6 +56,11 @@ public class MonitorCheckService {
             return;
         }
         Monitor monitor = found.get();
+        if (monitor.isHeartbeat()) {
+            log.warn("Heartbeat monitor has a check job; unscheduling it for monitorId={}", monitorId);
+            schedulerService.unschedule(monitorId);
+            return;
+        }
         if (!monitor.isActive()) {
             // Pausing removes the job, so this only happens if the two drifted apart.
             log.warn("Monitor paused; unscheduling stray job for monitorId={}", monitorId);

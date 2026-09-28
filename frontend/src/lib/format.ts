@@ -71,9 +71,6 @@ export function incidentDurationSeconds(i: { startedAt: string; resolvedAt: stri
   return ((i.resolvedAt ? Date.parse(i.resolvedAt) : Date.now()) - Date.parse(i.startedAt)) / 1000
 }
 
-/** Where heartbeat jobs send pings. Set VITE_PING_BASE_URL per environment. */
-export const PING_BASE_URL: string = import.meta.env.VITE_PING_BASE_URL ?? 'https://pulseguard.com'
-
 /** Where a heartbeat stands against its schedule: due soon, in grace, or overdue. */
 export function heartbeatDue(m: {
   lastCheckedAt: string | null

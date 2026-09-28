@@ -1,5 +1,6 @@
 package com.viris.PulseGuard.monitor;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -24,6 +25,18 @@ public interface MonitorRepository extends JpaRepository<Monitor, Long> {
 
     // Internal (scheduler) use only
     List<Monitor> findAllByActiveTrue();
+
+    /** The public ping endpoint's lookup; the token is unique. */
+    Optional<Monitor> findByHeartbeatToken(String heartbeatToken);
+
+    /** Active heartbeats whose deadline has passed, most overdue first. Partial index on ping_deadline. */
+    @Query("""
+            select m.id from Monitor m
+            where m.type = com.viris.PulseGuard.enumeration.MonitorType.HEARTBEAT
+              and m.active = true and m.pingDeadline <= :now
+            order by m.pingDeadline
+            """)
+    List<Long> findOverdueHeartbeatIds(@Param("now") Instant now, Pageable page);
 
     /**
      * Bulk update on purpose: it skips {@code @Version}, so a check finishing while the

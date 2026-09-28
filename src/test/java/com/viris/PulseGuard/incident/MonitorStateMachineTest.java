@@ -128,4 +128,38 @@ class MonitorStateMachineTest {
         assertThat(actions.indexOf(IncidentAction.OPEN)).isLessThan(actions.indexOf(IncidentAction.RESOLVE));
         assertThat(current.state()).isEqualTo(MonitorState.UP);
     }
+
+    // ── Heartbeats ──
+
+    @Test
+    void aMissedHeartbeatGoesDownAtOnceAndOpensAnIncident() {
+        Transition t = machine.heartbeatMissed(MonitorState.UP, 0);
+
+        assertThat(t.state()).isEqualTo(MonitorState.DOWN);
+        assertThat(t.consecutiveFailures()).isEqualTo(1);
+        assertThat(t.action()).isEqualTo(IncidentAction.OPEN);
+    }
+
+    @Test
+    void furtherMissesWhileDownDoNotOpenAnotherIncident() {
+        Transition t = machine.heartbeatMissed(MonitorState.DOWN, 1);
+
+        assertThat(t.state()).isEqualTo(MonitorState.DOWN);
+        assertThat(t.consecutiveFailures()).isEqualTo(2);
+        assertThat(t.action()).isEqualTo(IncidentAction.NONE);
+    }
+
+    @Test
+    void onePingResolvesADownHeartbeat() {
+        Transition t = machine.heartbeatPinged(MonitorState.DOWN);
+
+        assertThat(t.state()).isEqualTo(MonitorState.UP);
+        assertThat(t.consecutiveFailures()).isZero();
+        assertThat(t.action()).isEqualTo(IncidentAction.RESOLVE);
+    }
+
+    @Test
+    void aPingWhileUpChangesNothing() {
+        assertThat(machine.heartbeatPinged(MonitorState.UP).action()).isEqualTo(IncidentAction.NONE);
+    }
 }

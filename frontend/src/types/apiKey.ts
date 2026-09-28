@@ -1,4 +1,4 @@
-// GET/POST /api/api-keys, DELETE /api/api-keys/{id} — not on the backend yet.
+// GET/POST /api/api-keys, DELETE /api/api-keys/{id} — mirrors ApiKeyResponse.
 export interface ApiKey {
   id: number
   name: string

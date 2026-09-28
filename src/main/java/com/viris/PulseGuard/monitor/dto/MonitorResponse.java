@@ -1,6 +1,7 @@
 package com.viris.PulseGuard.monitor.dto;
 
 import com.viris.PulseGuard.enumeration.MonitorState;
+import com.viris.PulseGuard.enumeration.MonitorType;
 import com.viris.PulseGuard.monitor.Monitor;
 
 import java.time.Instant;
@@ -16,9 +17,13 @@ public record MonitorResponse(
         MonitorState state,
         Boolean isActive,
         Instant lastCheckedAt,
-        Instant createdAt
+        Instant createdAt,
+        MonitorType type,
+        Integer graceSeconds,
+        String pingUrl
 ) {
-    public static MonitorResponse from(Monitor monitor) {
+    /** @param pingUrl the heartbeat's secret URL (PingUrls), null for HTTP monitors */
+    public static MonitorResponse from(Monitor monitor, String pingUrl) {
         return new MonitorResponse(
                 monitor.getId(),
                 monitor.getName(),
@@ -30,7 +35,10 @@ public record MonitorResponse(
                 monitor.getState(),
                 monitor.isActive(),
                 monitor.getLastCheckedAt(),
-                monitor.getCreatedAt()
+                monitor.getCreatedAt(),
+                monitor.getType(),
+                monitor.getGraceSeconds(),
+                pingUrl
         );
     }
 }

@@ -1,5 +1,7 @@
 package com.viris.PulseGuard.auth;
 
+import com.viris.PulseGuard.apikey.ApiKeyAuthenticationFilter;
+import com.viris.PulseGuard.apikey.ApiKeyAuthenticationToken;
 import com.viris.PulseGuard.auth.jwt.JwtAuthenticationFilter;
 import com.viris.PulseGuard.common.exception.RestAuthenticationEntryPoint;
 import com.viris.PulseGuard.auth.jwt.JwtProperties;
@@ -8,7 +10,12 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authorization.AuthorizationDecision;
+import org.springframework.security.authorization.AuthorizationManager;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -22,6 +29,17 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @Configuration
 @EnableConfigurationProperties(JwtProperties.class)
 public class SecurityConfig {
+
+    /**
+     * Signed in with a session (JWT), not an API key. Anonymous callers are denied too, and
+     * Spring answers them with a 401 rather than this rule's 403.
+     */
+    static final AuthorizationManager<RequestAuthorizationContext> SESSION_ONLY = (authentication, context) -> {
+        Authentication auth = authentication.get();
+        return new AuthorizationDecision(auth != null && auth.isAuthenticated()
+                && !(auth instanceof AnonymousAuthenticationToken)
+                && !(auth instanceof ApiKeyAuthenticationToken));
+    };
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -44,6 +62,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http,
                                            JwtAuthenticationFilter jwtAuthenticationFilter,
+                                           ApiKeyAuthenticationFilter apiKeyAuthenticationFilter,
                                            RestAuthenticationEntryPoint authenticationEntryPoint) throws Exception {
         return http
                 // Stateless API with a token, so there is no session cookie for CSRF to protect.
@@ -62,14 +81,21 @@ public class SecurityConfig {
                         .requestMatchers("/status/**").permitAll()
                         // Public status page data; the SPA owns /status/{slug} itself.
                         .requestMatchers(HttpMethod.GET, "/api/status/*").permitAll()
+                        // Heartbeat pings: the secret token in the path is the credential.
+                        .requestMatchers("/api/ping/*").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
                         // After health: first match wins, so health stays public.
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
+                        // Account security needs a real sign-in: a leaked API key must not mint
+                        // more keys, change the password, or reach billing.
+                        .requestMatchers("/api/api-keys", "/api/api-keys/**", "/api/auth/password",
+                                "/api/billing/**").access(SESSION_ONLY)
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(authenticationEntryPoint)
                         .accessDeniedHandler(authenticationEntryPoint))
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(apiKeyAuthenticationFilter, JwtAuthenticationFilter.class)
                 .httpBasic(basic -> basic.disable())
                 .formLogin(form -> form.disable())
                 .build();

@@ -34,6 +34,10 @@ public class IncidentTimelineBuilder {
     public List<TimelineEvent> build(Incident incident, List<Check> checks, List<Notification> notifications) {
         List<TimelineEvent> events = new ArrayList<>();
         boolean resolved = incident.getResolvedAt() != null;
+        // A heartbeat goes down on its first missed deadline and recovers on its first ping.
+        boolean heartbeat = incident.getMonitor() != null && incident.getMonitor().isHeartbeat();
+        int failureThreshold = heartbeat ? 1 : properties.failureThreshold();
+        int recoveryThreshold = heartbeat ? 1 : properties.recoveryThreshold();
         int finalPasses = resolved ? trailingPasses(checks) : 0;
 
         boolean opened = false;
@@ -51,7 +55,7 @@ public class IncidentTimelineBuilder {
                         ? new TimelineEvent.CheckFailed(check.getCheckedAt(), IncidentEngine.describe(check))
                         : new TimelineEvent.CheckPassed(check.getCheckedAt()));
             }
-            if (!opened && failuresInARow == properties.failureThreshold()) {
+            if (!opened && failuresInARow == failureThreshold) {
                 events.add(new TimelineEvent.Opened(check.getCheckedAt(), failuresInARow));
                 opened = true;
             }
@@ -60,11 +64,11 @@ public class IncidentTimelineBuilder {
         if (!opened) {
             // Incidents recorded before startedAt meant "first failure" begin at the confirming
             // check, so their streak lies outside the window; anchor OPENED at the start instead.
-            events.add(new TimelineEvent.Opened(incident.getStartedAt(), properties.failureThreshold()));
+            events.add(new TimelineEvent.Opened(incident.getStartedAt(), failureThreshold));
         }
         if (resolved) {
             events.add(new TimelineEvent.Resolved(incident.getResolvedAt(),
-                    finalPasses > 0 ? finalPasses : properties.recoveryThreshold()));
+                    finalPasses > 0 ? finalPasses : recoveryThreshold));
         }
 
         for (Notification notification : notifications) {

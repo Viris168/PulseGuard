@@ -6,7 +6,7 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'HEAD'
 /**
  * HTTP: PulseGuard calls your URL on a schedule.
  * HEARTBEAT: your job calls PulseGuard's ping URL; silence past the deadline means down.
- * (Not on the backend's Monitor entity yet.)
+ * Mirrors com.viris.PulseGuard.enumeration.MonitorType.
  */
 export type MonitorType = 'HTTP' | 'HEARTBEAT'
 
