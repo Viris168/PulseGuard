@@ -13,7 +13,9 @@ Personal reminder of features discussed and the order to build them.
    Local setup in BILLING.md; downgrades slow monitors and switch off channels the plan drops.
 6. **Slack alerts** — ✅ done: Pro and Business alerts reach a Slack incoming webhook
    (Settings → Alert channels). Telegram, SMS and generic webhooks follow the same pattern.
-7. **Extras** — heartbeat URLs, public status page, Ask AI, API keys.
+7. **Rollup and retention** — ✅ done: a nightly job summarises checks per day, then trims
+   history to each plan's limit (Free 7 days, Pro 90, Business 365; raw checks 62 days at most).
+8. **Extras** — heartbeat URLs, public status page, Ask AI, API keys.
 
 ---
 
