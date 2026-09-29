@@ -1,4 +1,6 @@
+import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import { prefetchWhenIdle } from '../../routes/pages'
 import {
   ArrowRight,
   BarChart3,
@@ -45,6 +47,8 @@ const preview: { name: string; status: DisplayStatus; uptime: string; fails: num
 ]
 
 export function LandingPage() {
+  // A visitor here is most likely to sign in or sign up next.
+  useEffect(() => prefetchWhenIdle('landing'), [])
   return (
     <div className="min-h-dvh bg-white dark:bg-zinc-950">
       <header className="sticky top-0 z-30 border-b border-zinc-200/70 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">

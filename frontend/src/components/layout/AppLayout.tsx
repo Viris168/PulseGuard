@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { prefetchWhenIdle } from '../../routes/pages'
 import { Activity, AlertTriangle, CreditCard, Globe, Menu, Moon, Settings, Sun, X, type LucideIcon } from 'lucide-react'
 import { cn } from '../../lib/format'
 import { getBillingSummary } from '../../api/billing'
@@ -7,11 +8,14 @@ import { useAuth } from '../../auth/authContext'
 import { MONITORS_CHANGED } from '../../lib/events'
 import { limitsFor, nextPlan } from '../../lib/plans'
 import { PLAN_LABEL, type Plan } from '../../types/auth'
-import { AskAiPanel } from '../ai/AskAiPanel'
 import { AskAiButton, SupportMenu } from './HeaderActions'
+import { PageBoundary } from '../PageBoundary'
 import { Logo } from './Logo'
 import { ProfileMenu } from './ProfileMenu'
 import { VerifyEmailBanner } from './VerifyEmailBanner'
+
+// Loaded the first time it is opened: most visits never open it, and it is not small.
+const AskAiPanel = lazy(() => import('../ai/AskAiPanel').then((m) => ({ default: m.AskAiPanel })))
 
 const nav: { to: string; label: string; icon: LucideIcon }[] = [
   { to: '/monitors', label: 'Monitors', icon: Activity },
@@ -96,12 +100,16 @@ export function AppLayout() {
   const [dark, toggleTheme] = useTheme()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [aiOpen, setAiOpen] = useState(false)
+  // Stays mounted once opened, so closing and reopening keeps the conversation.
+  const [aiLoaded, setAiLoaded] = useState(false)
   // Stable, so the panel's open effect doesn't re-run on every render.
   const closeAi = useCallback(() => setAiOpen(false), [])
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const [used, setUsed] = useState<number | null>(null)
+  // Every other dashboard page is one click away.
+  useEffect(() => prefetchWhenIdle('dashboard'), [])
 
   // Cheap refresh on every navigation keeps the count right after adding or deleting monitors.
   useEffect(() => {
@@ -160,7 +168,13 @@ export function AppLayout() {
             <Logo />
           </div>
           <div className="ml-auto flex items-center gap-1 sm:gap-2">
-            <AskAiButton open={aiOpen} onToggle={() => setAiOpen((o) => !o)} />
+            <AskAiButton
+              open={aiOpen}
+              onToggle={() => {
+                setAiLoaded(true)
+                setAiOpen((o) => !o)
+              }}
+            />
             <SupportMenu />
             <span className="mx-1 hidden h-5 w-px bg-zinc-200 sm:block dark:bg-zinc-800" aria-hidden />
             <button
@@ -177,11 +191,17 @@ export function AppLayout() {
         {user && !user.emailVerified && <VerifyEmailBanner user={user} />}
 
         <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:py-8">
-          <Outlet />
+          <PageBoundary>
+            <Outlet />
+          </PageBoundary>
         </main>
       </div>
 
-      <AskAiPanel open={aiOpen} onClose={closeAi} />
+      {aiLoaded && (
+        <Suspense fallback={null}>
+          <AskAiPanel open={aiOpen} onClose={closeAi} />
+        </Suspense>
+      )}
     </div>
   )
 }

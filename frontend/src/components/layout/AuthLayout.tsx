@@ -1,5 +1,8 @@
+import { useEffect } from 'react'
 import { Outlet } from 'react-router-dom'
+import { prefetchWhenIdle } from '../../routes/pages'
 import { BellRing, ShieldCheck, Timer } from 'lucide-react'
+import { PageBoundary } from '../PageBoundary'
 import { Logo } from './Logo'
 
 const preview = [
@@ -16,13 +19,17 @@ const points = [
 
 /** Split screen: form on the left, product pitch on the right (desktop only). */
 export function AuthLayout() {
+  // Sign in, sign up and the dashboard are one click away: have them ready.
+  useEffect(() => prefetchWhenIdle('auth'), [])
   return (
     <div className="grid min-h-dvh lg:grid-cols-2">
       <div className="flex flex-col px-4 py-6 sm:px-10">
         <Logo />
         <main className="flex flex-1 items-center justify-center py-10">
           <div className="w-full max-w-sm">
-            <Outlet />
+            <PageBoundary>
+              <Outlet />
+            </PageBoundary>
           </div>
         </main>
         <p className="text-center text-xs text-zinc-400 dark:text-zinc-500">© {new Date().getFullYear()} PulseGuard</p>
