@@ -106,7 +106,7 @@ The backend was already written and it compiles. Review it before building on it
 | `.env.example` | `PULSEGUARD_AI_PROVIDER`, `ANTHROPIC_API_KEY` | ✅ |
 | **Tests** | `ai/IncidentSummaryPromptTest`, `IncidentSummaryServiceTest`, `IncidentSummaryApiIntegrationTest` (32 tests) | ✅ |
 | **Frontend** | `getIncidentSummary()` → "AI-generated" label; falls back to `lib/incidentSummary.ts` `ruleBasedSummary()` | ✅ |
-| **Docs** | DEPLOY.md, CLAUDE.md, AI_PLAN.md not updated | ❌ |
+| **Docs** | DEPLOY.md (AI section), `deploy/.env.example`, CLAUDE.md (rule 8), AI_PLAN.md | ✅ |
 
 ### How a request flows
 

@@ -78,7 +78,24 @@ customer has asked for.
 Migrations start at **V19**. Package: `com.viris.PulseGuard.ai` (feature package, per CLAUDE.md;
 entities/repos follow the repo's existing mixed convention).
 
-### Milestone 0: Incident summary (2–3 days, optional quick win)
+### Milestone 0: Incident summary (2–3 days, optional quick win) ✅ Done
+
+Built as planned; see `AI_MILESTONE_0.md`. Providers: Anthropic and Google Gemini
+(`gemini-3.1-flash-lite` by default), picked by `PULSEGUARD_AI_PROVIDER`.
+
+### Milestone 0.5: Ask AI from a data snapshot (option B) ✅ Done
+
+Replaced the keyword-matching mock in the Ask AI panel before the full chat exists. One question,
+one answer, no history or streaming:
+- `POST /api/ai/ask` sends the question plus a snapshot of the caller's shared monitors (status,
+  24h/7d uptime, response times, latest error) and last 7 days of incidents (`AskAiSnapshotLoader`).
+- `GET/PUT /api/ai/access` stores consent and scope on the server (V20).
+- Daily questions per plan (Free 5, Pro 100, Business fair-use 500) in Redis; a question the
+  model fails to answer is handed back.
+
+Milestones 1 and 2 upgrade this rather than replace it: the access table, quota, `ModelCaller`
+and prompt rules carry over; the snapshot gives way to tools that fetch exactly what's asked.
+
 
 ROADMAP's "cheaper first AI feature". Proves provider wiring, config, cost logging and error
 handling with no chat UI.

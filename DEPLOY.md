@@ -202,6 +202,24 @@ a message naming it. `.env.example` has working local values for all of them.
 The production profile requires SMTP login and STARTTLS. Only local Mailpit turns them off, with
 `PULSEGUARD_MAIL_SMTP_AUTH=false` and `PULSEGUARD_MAIL_STARTTLS_REQUIRED=false`.
 
+### AI (optional)
+
+AI incident summaries and Ask AI are off unless `PULSEGUARD_AI_PROVIDER` is set. With it off,
+nothing is sent to any AI provider and the dashboard shows its built-in incident summary.
+
+| Variable | Notes |
+|---|---|
+| `PULSEGUARD_AI_PROVIDER` | `none` (default), `google-genai` or `anthropic` |
+| `GOOGLE_AI_API_KEY` | For `google-genai`, from aistudio.google.com. Enable billing before real customers use it: the free tier may use prompts to improve Google's products, and prompts contain customers' monitor data |
+| `ANTHROPIC_API_KEY` | For `anthropic`, from console.anthropic.com. Set a monthly spend limit in the console |
+| `PULSEGUARD_AI_GOOGLE_MODEL` | Default `gemini-3.1-flash-lite`. Google retires model names; if every AI request fails, check the model still exists |
+| `PULSEGUARD_AI_SUMMARY_MODEL` | Anthropic model, default `claude-haiku-4-5` |
+| `PULSEGUARD_AI_TIMEOUT` | Default `20s`, the longest a request waits for the model |
+| `PULSEGUARD_AI_FAIR_USE_DAILY_QUESTIONS` | Default `500`, the Ask AI cap per day on Business. Free (5) and Pro (100) are fixed in `PlanLimits` |
+
+Failed AI calls are logged as `AI … failed` or `AI … timed out`, with the error class but never
+the prompt. Each answered call logs its token counts.
+
 ### Tuning
 
 Copy the remaining `PULSEGUARD_*` settings and `STRIPE_PRICE_PRO` / `STRIPE_PRICE_BUSINESS` from
