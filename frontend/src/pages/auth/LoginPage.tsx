@@ -48,10 +48,10 @@ export function LoginPage() {
 
   return (
     <>
-      <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
+      <h1 className="text-xl font-semibold tracking-tight">Sign in</h1>
       <p className="mt-1.5 text-sm text-zinc-500 dark:text-zinc-400">Welcome back. Your monitors kept watch while you were away.</p>
 
-      <form onSubmit={onSubmit} noValidate className="mt-8 space-y-5">
+      <form onSubmit={onSubmit} noValidate className="mt-5 space-y-4">
         {banner && <FormBanner>{banner}</FormBanner>}
         {passwordReset && !banner && (
           <p
@@ -95,7 +95,7 @@ export function LoginPage() {
         </Button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
+      <p className="mt-5 text-center text-sm text-zinc-500 lg:hidden dark:text-zinc-400">
         New to PulseGuard?{' '}
         <Link to="/signup" className="font-medium text-emerald-700 hover:underline dark:text-emerald-400">
           Create an account

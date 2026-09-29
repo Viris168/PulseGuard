@@ -205,8 +205,10 @@ export function LandingPage() {
                   <div
                     key={p.plan}
                     className={cn(
-                      'flex flex-col rounded-xl border bg-white p-6 dark:bg-zinc-900',
-                      featured ? 'border-emerald-600 shadow-lg ring-1 ring-emerald-600 dark:border-emerald-500 dark:ring-emerald-500' : 'border-zinc-200 dark:border-zinc-800',
+                      'flex flex-col rounded-xl border bg-white p-6 transition duration-200 ease-out hover:shadow-xl motion-safe:hover:-translate-y-1 dark:bg-zinc-900',
+                      featured
+                        ? 'border-emerald-600 shadow-lg ring-1 ring-emerald-600 hover:shadow-emerald-600/20 dark:border-emerald-500 dark:ring-emerald-500'
+                        : 'border-zinc-200 hover:border-emerald-300 dark:border-zinc-800 dark:hover:border-emerald-700',
                     )}
                   >
                     <h3 className="font-semibold">{p.name}</h3>
@@ -231,10 +233,10 @@ export function LandingPage() {
                     <Link
                       to="/signup"
                       className={cn(
-                        'mt-6 inline-flex h-10 items-center justify-center rounded-lg text-sm font-medium',
+                        'mt-6 inline-flex h-10 items-center justify-center rounded-lg text-sm font-medium transition duration-150 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600',
                         featured
                           ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                          : 'border border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800',
+                          : 'border border-zinc-300 hover:border-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 dark:border-zinc-700 dark:hover:border-emerald-500 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300',
                       )}
                     >
                       {p.price === 0 ? 'Start free' : `Start with ${p.name}`}

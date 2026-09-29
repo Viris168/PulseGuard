@@ -67,10 +67,10 @@ export function SignupPage() {
 
   return (
     <>
-      <h1 className="text-2xl font-semibold tracking-tight">Create your account</h1>
+      <h1 className="text-xl font-semibold tracking-tight">Create your account</h1>
       <p className="mt-1.5 text-sm text-zinc-500 dark:text-zinc-400">Free for up to 3 monitors. No credit card needed.</p>
 
-      <form onSubmit={onSubmit} noValidate className="mt-8 space-y-5">
+      <form onSubmit={onSubmit} noValidate className="mt-5 space-y-4">
         {banner && <FormBanner>{banner}</FormBanner>}
 
         <Field id="name" label="Name" error={errors.name}>
@@ -139,7 +139,7 @@ export function SignupPage() {
         </Button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
+      <p className="mt-5 text-center text-sm text-zinc-500 lg:hidden dark:text-zinc-400">
         Already have an account?{' '}
         <Link to="/login" className="font-medium text-emerald-700 hover:underline dark:text-emerald-400">
           Sign in
