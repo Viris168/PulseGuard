@@ -7,10 +7,11 @@ import { check, incident, incidentDetail } from '../test/fixtures'
 import { IncidentDetailPage } from './IncidentDetailPage'
 import { IncidentsPage } from './IncidentsPage'
 
-const api = vi.hoisted(() => ({ listIncidents: vi.fn(), getIncident: vi.fn() }))
+const api = vi.hoisted(() => ({ listIncidents: vi.fn(), getIncident: vi.fn(), getIncidentSummary: vi.fn() }))
 vi.mock('../api/incidents', () => api)
 vi.mock('../api/monitors', () => ({ listChecks: vi.fn().mockResolvedValue([check()]), listPings: vi.fn().mockResolvedValue([]) }))
-vi.mock('../api/ai', () => ({ summarizeIncident: vi.fn().mockResolvedValue('Payments API returned 503 for 30 minutes.') }))
+
+const AI_SUMMARY = 'Payments API returned 503 for 30 minutes.'
 
 function renderAt(path: string) {
   render(
@@ -30,6 +31,7 @@ beforeEach(() => {
     incident(),
   ])
   api.getIncident.mockResolvedValue(incidentDetail())
+  api.getIncidentSummary.mockResolvedValue({ summary: AI_SUMMARY, generatedAt: new Date().toISOString() })
 })
 
 describe('Incidents list', () => {
@@ -54,7 +56,32 @@ describe('Incident details', () => {
 
     expect(await screen.findByRole('heading', { name: 'Timeline' })).toBeInTheDocument()
     expect(screen.getAllByText(/Expected 200 but got 503/).length).toBeGreaterThan(0)
-    expect(await screen.findByText('Payments API returned 503 for 30 minutes.')).toBeInTheDocument()
+    expect(await screen.findByText(AI_SUMMARY)).toBeInTheDocument()
+  })
+
+  it('labels the summary when the AI model wrote it', async () => {
+    renderAt('/incidents/10')
+
+    expect(await screen.findByText(AI_SUMMARY)).toBeInTheDocument()
+    expect(screen.getByText('AI-generated')).toBeInTheDocument()
+    expect(api.getIncidentSummary).toHaveBeenCalledWith(10)
+  })
+
+  it('falls back to the built-in summary, unlabelled, when AI is off', async () => {
+    api.getIncidentSummary.mockResolvedValue(null)
+    renderAt('/incidents/10')
+
+    expect(await screen.findByText(/alerted email/)).toBeInTheDocument()
+    expect(screen.queryByText('AI-generated')).not.toBeInTheDocument()
+  })
+
+  it('falls back to the built-in summary when the summary request fails', async () => {
+    api.getIncidentSummary.mockRejectedValue(new ApiError(500, 'Server error'))
+    renderAt('/incidents/10')
+
+    expect(await screen.findByText(/alerted email/)).toBeInTheDocument()
+    expect(screen.queryByText('AI-generated')).not.toBeInTheDocument()
+    expect(screen.queryByText('Server error')).not.toBeInTheDocument()
   })
 
   it("handles another account's incident as not found", async () => {

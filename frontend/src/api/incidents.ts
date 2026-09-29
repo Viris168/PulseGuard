@@ -18,3 +18,17 @@ export async function listIncidents(filter: IncidentFilter = {}): Promise<Incide
 export async function getIncident(id: number): Promise<IncidentDetail> {
   return api<IncidentDetail>(`/api/incidents/${id}`)
 }
+
+/** Mirrors IncidentSummaryResponse. */
+export interface IncidentSummary {
+  summary: string
+  generatedAt: string
+}
+
+/**
+ * GET /api/incidents/{id}/summary — written by the AI model and cached on the server. null (a 204)
+ * when AI is off or the provider failed; the page then shows lib/incidentSummary's own summary.
+ */
+export async function getIncidentSummary(id: number): Promise<IncidentSummary | null> {
+  return (await api<IncidentSummary | undefined>(`/api/incidents/${id}/summary`)) ?? null
+}
