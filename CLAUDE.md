@@ -13,13 +13,14 @@ Reference docs (read when relevant, do not duplicate their content here):
 
 ## Stack
 
-- Java 21, Spring Boot 3, Maven
+- Java 21, Spring Boot 4, Maven
 - PostgreSQL with Flyway migrations
 - Quartz scheduler (JDBC job store, clustered)
 - Spring WebClient for HTTP checks
 - Spring Security + BCrypt + JWT
 - Spring Mail (Resend/SendGrid SMTP) for email alerts
 - Stripe Java SDK (Checkout, Customer Portal, Webhooks)
+- Spring AI 2.0 (`ChatModel`) for AI incident summaries and Ask AI; Anthropic or Google Gemini, picked by `PULSEGUARD_AI_PROVIDER` (`none` by default). See `AI_PLAN.md`
 - Redis (via spring-boot-starter-data-redis) — used intentionally for learning purposes, even though the MVP doesn't strictly require it. Current uses: (1) caching dashboard/stats reads with @Cacheable, (2) a Redis-backed job queue for dispatching checks from Quartz to a worker. Keep Redis usage isolated behind a small abstraction (e.g. a CheckQueue interface) so it can be removed or swapped without touching business logic.
 - JUnit 5, Mockito, Testcontainers (PostgreSQL)
 - Docker + docker-compose for local development
@@ -66,6 +67,7 @@ src/main/java/com/viris/PulseGuard/
 ├── billing/       # StripeService, StripeWebhookController, PlanLimits
 ├── stats/         # rollup and retention jobs, StatsController
 ├── statuspage/    # public status page
+├── ai/            # ModelCaller, incident summaries, Ask AI (prompts, snapshot, access, quota)
 └── common/        # exceptions, GlobalExceptionHandler, config properties
 
 src/main/resources/
@@ -112,10 +114,15 @@ Entities live in `model/`, enums in `enumeration/`, and repositories in `reposit
 5. **Plan limits enforced server-side** in services via `PlanLimits` (monitor count, minimum interval, channels, retention). Never rely on the frontend.
 6. **SSRF protection.** Before saving a monitor and before each check, resolve the host and reject private/internal addresses: loopback, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16`, IPv6 local ranges. Check after DNS resolution, not just the URL string.
 7. **Stripe webhooks** must verify the signature and deduplicate by `stripe_event_id` (stored in `stripe_events`) before processing.
+8. **AI calls** go through `ModelCaller` only (one timeout for every provider, never throws). An AI failure must never fail a page: summaries fall back to the rule-based text, Ask AI answers 503 and hands the question back to the quota.
+   - Send the model only what the answer needs: never monitor URLs, headers, ping tokens or alert targets.
+   - Text from monitored servers and users (error messages, monitor names) goes through `PromptText` inside the prompt's data tag; the system prompt says it is data, never instructions.
+   - Ask AI only reads monitors the user shared (`AiAccess`), always scoped by `user_id`. AI endpoints are session-only, so API keys can't spend AI quota.
+   - Test with a fake `ChatModel` bean; tests never call a real provider (`spring.ai.model.chat=none`).
 
 ## Security and Secrets
 
-- Never commit secrets. All keys (DB, JWT secret, Stripe keys, SMTP key) come from environment variables.
+- Never commit secrets. All keys (DB, JWT secret, Stripe keys, SMTP key, AI provider keys) come from environment variables.
 - Never log passwords, tokens, API keys, or full webhook URLs.
 - `/api/stripe/webhook`, `/status/**`, `GET /api/status/{slug}` (public status page data), `/api/ping/{token}` (heartbeat pings) and `POST /api/channels/confirm` (confirming an email alert channel from its link) are the only unauthenticated endpoints besides auth routes and `/actuator/health`.
 
