@@ -43,6 +43,12 @@ public final class LocalFixedWindow {
                 : new Window(w.count() + 1, w.expiresAt())).count();
     }
 
+    /** Events counted so far in {@code key}'s current window, without counting one. */
+    public long count(String key) {
+        Window w = windows.get(key);
+        return w == null || !w.expiresAt().isAfter(clock.instant()) ? 0 : w.count();
+    }
+
     public void reset(String key) {
         windows.remove(key);
     }

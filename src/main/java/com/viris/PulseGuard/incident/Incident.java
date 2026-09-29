@@ -36,4 +36,11 @@ public class Incident {
 
     @Column(name = "resolved_at")
     private Instant resolvedAt;
+
+    /** Written only by IncidentSummaryService, through IncidentRepository#saveAiSummary. */
+    @Column(name = "ai_summary", columnDefinition = "TEXT")
+    private String aiSummary;
+
+    @Column(name = "ai_summary_at")
+    private Instant aiSummaryAt;
 }
