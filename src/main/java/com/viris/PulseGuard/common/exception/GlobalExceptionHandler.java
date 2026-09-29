@@ -73,6 +73,12 @@ public class GlobalExceptionHandler {
                         Map.of("target", ex.getMessage())));
     }
 
+    @ExceptionHandler(AiRuleException.class)
+    public ResponseEntity<ApiError> handleAiRule(AiRuleException ex) {
+        return ResponseEntity.status(ex.getStatus())
+                .body(ApiError.of(ex.getStatus().value(), ex.getMessage()));
+    }
+
     @ExceptionHandler(ChannelRuleException.class)
     public ResponseEntity<ApiError> handleChannelRule(ChannelRuleException ex) {
         return ResponseEntity.status(ex.getStatus())

@@ -143,7 +143,7 @@ public class AlertMessageFactory {
     }
 
     /** "45s", "14m 30s", "2h 5m": the largest two units, which is all a reader needs. */
-    static String humanize(Duration duration) {
+    public static String humanize(Duration duration) {
         long hours = duration.toHours();
         int minutes = duration.toMinutesPart();
         int seconds = duration.toSecondsPart();

@@ -21,15 +21,17 @@ public class PlanLimits {
             int maxMonitors,
             int minIntervalSeconds,
             int retentionDays,
-            Set<ChannelType> channels
+            Set<ChannelType> channels,
+            // Ask AI questions per day; UNLIMITED still meets AiProperties' fair-use cap.
+            int aiDailyQuestions
     ) {}
 
     private static final Map<Plan, Limits> LIMITS = Map.of(
-            Plan.FREE, new Limits(3, 300, 7, Set.of(ChannelType.EMAIL)),
-            Plan.PRO, new Limits(25, 60, 90, Set.of(ChannelType.EMAIL, ChannelType.SLACK)),
+            Plan.FREE, new Limits(3, 300, 7, Set.of(ChannelType.EMAIL), 5),
+            Plan.PRO, new Limits(25, 60, 90, Set.of(ChannelType.EMAIL, ChannelType.SLACK), 100),
             Plan.BUSINESS, new Limits(UNLIMITED, 60, 365,
                     // No SMS until a sender exists: a plan must never sell a channel that stays silent.
-                    Set.of(ChannelType.EMAIL, ChannelType.SLACK))
+                    Set.of(ChannelType.EMAIL, ChannelType.SLACK), UNLIMITED)
     );
 
     public Limits forPlan(Plan plan) {
@@ -50,6 +52,10 @@ public class PlanLimits {
 
     public int retentionDays(Plan plan) {
         return forPlan(plan).retentionDays();
+    }
+
+    public int aiDailyQuestions(Plan plan) {
+        return forPlan(plan).aiDailyQuestions();
     }
 
     public boolean allowsChannel(Plan plan, ChannelType type) {

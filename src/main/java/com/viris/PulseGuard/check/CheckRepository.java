@@ -122,6 +122,33 @@ public interface CheckRepository extends JpaRepository<Check, Long> {
                                                    @Param("windowEnd") Instant windowEnd,
                                                    @Param("bucketSeconds") long bucketSeconds);
 
+    /**
+     * Uptime and response times since {@code since} for every monitor of one user, one row per
+     * monitor with checks: Ask AI's snapshot. Grouped in Postgres, so only a row per monitor
+     * comes back; each monitor's range is served by the (monitor_id, checked_at) index.
+     */
+    @Query(nativeQuery = true, value = """
+            select c.monitor_id as "monitorId",
+                   count(*) as "total",
+                   count(*) filter (where c.result = 'UP') as "up",
+                   cast(avg(c.response_time_ms) filter (where c.result = 'UP') as float8) as "avgMs",
+                   percentile_cont(0.95) within group (order by c.response_time_ms)
+                       filter (where c.result = 'UP') as "p95Ms"
+            from checks c
+            join monitors m on m.id = c.monitor_id
+            where m.user_id = :userId and c.checked_at >= :since
+            group by c.monitor_id
+            """)
+    List<MonitorTotalsRow> totalsPerMonitorSince(@Param("userId") Long userId, @Param("since") Instant since);
+
+    interface MonitorTotalsRow {
+        Long getMonitorId();
+        Long getTotal();
+        Long getUp();
+        Double getAvgMs();
+        Double getP95Ms();
+    }
+
     interface MonitorBucketRow {
         Long getMonitorId();
         Integer getIdx();

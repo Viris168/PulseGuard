@@ -59,6 +59,7 @@ export function AskAiPanel({ open, onClose }: Props) {
   const [monitors, setMonitors] = useState<MonitorWithStats[] | null>(null)
   const [saving, setSaving] = useState(false)
   const [setupError, setSetupError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -70,14 +71,17 @@ export function AskAiPanel({ open, onClose }: Props) {
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    Promise.all([getAiAccess(), listMonitors(), getAiQuota()]).then(([a, m, q]) => {
-      if (cancelled) return
-      setAccess(a)
-      setDraft(a.enabled ? a : { enabled: false, allMonitors: true, monitorIds: m.map((x) => x.id) })
-      setMonitors([...m].sort((x, y) => x.name.localeCompare(y.name)))
-      setQuota(q)
-      setView(a.enabled ? 'chat' : 'setup')
-    })
+    Promise.all([getAiAccess(), listMonitors(), getAiQuota()])
+      .then(([a, m, q]) => {
+        if (cancelled) return
+        setLoadError(null)
+        setAccess(a)
+        setDraft(a.enabled ? a : { enabled: false, allMonitors: true, monitorIds: m.map((x) => x.id) })
+        setMonitors([...m].sort((x, y) => x.name.localeCompare(y.name)))
+        setQuota(q)
+        setView(a.enabled ? 'chat' : 'setup')
+      })
+      .catch((e) => !cancelled && setLoadError(e instanceof Error ? e.message : 'Could not load Ask AI'))
     const onKey = (e: globalThis.KeyboardEvent) => e.key === 'Escape' && onClose()
     document.addEventListener('keydown', onKey)
     return () => {
@@ -206,8 +210,8 @@ export function AskAiPanel({ open, onClose }: Props) {
         style={{ backgroundImage: 'radial-gradient(var(--dot) 1px, transparent 1px)', backgroundSize: '16px 16px' }}
       >
         {view === 'loading' && (
-          <div className="flex flex-1 items-center justify-center text-zinc-400">
-            <Spinner />
+          <div className="flex flex-1 items-center justify-center px-6 text-center text-zinc-400">
+            {loadError ? <p className="text-sm text-red-600 dark:text-red-400">{loadError}</p> : <Spinner />}
           </div>
         )}
 

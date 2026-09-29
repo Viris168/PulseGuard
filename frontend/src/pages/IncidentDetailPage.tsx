@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { AlertCircle, ArrowRight, Sparkles } from 'lucide-react'
 import { BackLink } from '../components/ui/BackLink'
-import { summarizeIncident } from '../api/ai'
 import { loadErrorMessage } from '../api/errors'
-import { getIncident } from '../api/incidents'
+import { getIncident, getIncidentSummary } from '../api/incidents'
 import { listChecks, listPings } from '../api/monitors'
 import type { Check, Ping } from '../types/check'
 import type { IncidentDetail } from '../types/incident'
 import { formatDay, formatDuration, formatTime, incidentDurationSeconds } from '../lib/format'
+import { ruleBasedSummary } from '../lib/incidentSummary'
 import { IncidentStatusPill } from '../components/incidents/IncidentStatusPill'
 import { IncidentTimeline } from '../components/incidents/IncidentTimeline'
 import { ChecksTable } from '../components/monitors/ChecksTable'
@@ -29,7 +29,8 @@ export function IncidentDetailPage() {
   const [checks, setChecks] = useState<Check[] | null>(null)
   const [pings, setPings] = useState<Ping[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [summary, setSummary] = useState<string | null>(null)
+  // ai: written by the model. Otherwise it's the rule-based fallback and carries no AI label.
+  const [summary, setSummary] = useState<{ text: string; ai: boolean } | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -37,7 +38,12 @@ export function IncidentDetailPage() {
       .then((inc) => {
         if (cancelled) return
         setIncident(inc)
-        summarizeIncident(inc).then((text) => !cancelled && setSummary(text))
+        // AI off, provider down or a slow model must never leave the card empty.
+        getIncidentSummary(inc.id)
+          .catch(() => null)
+          .then((ai) => {
+            if (!cancelled) setSummary(ai ? { text: ai.summary, ai: true } : { text: ruleBasedSummary(inc), ai: false })
+          })
         const pad = CONTEXT_CHECKS * inc.intervalSeconds * 1000
         const end = inc.resolvedAt ? Date.parse(inc.resolvedAt) + pad : Date.now()
         const query = {
@@ -118,12 +124,14 @@ export function IncidentDetailPage() {
         <p className="flex items-center gap-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300">
           <Sparkles className="size-4" aria-hidden />
           Summary
-          <span className="rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 uppercase dark:bg-zinc-900/60 dark:text-emerald-400">
-            AI · preview
-          </span>
+          {summary?.ai && (
+            <span className="rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 uppercase dark:bg-zinc-900/60 dark:text-emerald-400">
+              AI-generated
+            </span>
+          )}
         </p>
         {summary ? (
-          <p className="mt-2 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">{summary}</p>
+          <p className="mt-2 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">{summary.text}</p>
         ) : (
           <div className="mt-3 space-y-2" aria-label="Writing summary">
             <div className="h-3 w-full animate-pulse rounded bg-emerald-100 dark:bg-emerald-500/10" />

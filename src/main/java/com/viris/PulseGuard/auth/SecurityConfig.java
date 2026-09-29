@@ -105,6 +105,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/api-keys", "/api/api-keys/**", "/api/auth/password",
                                 "/api/auth/email", "/api/billing/**").access(SESSION_ONLY)
                         .requestMatchers(HttpMethod.DELETE, "/api/auth/me").access(SESSION_ONLY)
+                        // AI calls cost money per request; a leaked key must not be able to run them up.
+                        .requestMatchers(HttpMethod.GET, "/api/incidents/*/summary").access(SESSION_ONLY)
+                        .requestMatchers("/api/ai/**").access(SESSION_ONLY)
                         // The frontend's own files and client-side routes (SpaConfig). Last, so
                         // every rule above still applies; /error stays closed as a direct request.
                         .requestMatchers(SecurityConfig::isFrontendRequest).permitAll()
