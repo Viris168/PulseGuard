@@ -1,6 +1,7 @@
 package com.viris.PulseGuard.notification;
 
 import com.viris.PulseGuard.auth.AuthService;
+import com.viris.PulseGuard.common.TestAccounts;
 import com.viris.PulseGuard.auth.User;
 import com.viris.PulseGuard.auth.UserRepository;
 import com.viris.PulseGuard.auth.dto.RegisterRequest;
@@ -136,7 +137,8 @@ class NotificationFlowIntegrationTest {
 
     private User register(String email) {
         authService.register(new RegisterRequest("Owner", email, "Sup3rSecret!"));
-        return users.findByEmail(email).orElseThrow();
+        TestAccounts.awaitVerificationEmail(mailSender, email);
+        return TestAccounts.markVerified(users, email);
     }
 
     private Long monitorFor(User owner) {

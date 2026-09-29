@@ -37,4 +37,13 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Modifying
     @Query("UPDATE User u SET u.stripeCustomerId = :customerId WHERE u.id = :id AND u.stripeCustomerId IS NULL")
     int linkStripeCustomer(@Param("id") Long id, @Param("customerId") String customerId);
+
+    /**
+     * Deletes the row in SQL and leaves the rest to ON DELETE CASCADE. A bulk delete, not
+     * {@code delete(entity)}: entities loaded earlier in the transaction (the subscription,
+     * the monitors) would otherwise still point at a removed user when Hibernate flushes.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from User u where u.id = :id")
+    int deleteByIdCascading(@Param("id") Long id);
 }

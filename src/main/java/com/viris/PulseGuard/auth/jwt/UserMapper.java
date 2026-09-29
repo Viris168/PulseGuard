@@ -26,7 +26,8 @@ public final class UserMapper {
                 user.getEmail(),
                 user.getPlan(),
                 user.getRole(),
-                user.getCreatedAt()
+                user.getCreatedAt(),
+                user.isEmailVerified()
         );
     }
 

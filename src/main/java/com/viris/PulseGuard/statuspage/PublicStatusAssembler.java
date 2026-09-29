@@ -73,7 +73,7 @@ public class PublicStatusAssembler {
                 .map(i -> {
                     ComponentInput input = placed.get(i.monitorId());
                     boolean recovering = i.status() == IncidentStatus.OPEN && input.state() == MonitorState.RECOVERING;
-                    return new PublicIncident(i.id(), input.name(), i.status(), recovering, i.startedAt(), i.resolvedAt());
+                    return new PublicIncident(input.name(), i.status(), recovering, i.startedAt(), i.resolvedAt());
                 })
                 .toList();
 

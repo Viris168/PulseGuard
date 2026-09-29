@@ -50,6 +50,8 @@ export interface NotificationChannel {
   /** Email address as-is; webhook URLs and phone numbers arrive masked by the server. */
   target: string
   enabled: boolean
+  /** Email to someone else's address, not confirmed from that inbox yet: gets no alerts. */
+  awaitingConfirmation: boolean
 }
 
 export interface ChannelRequest {

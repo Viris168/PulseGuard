@@ -28,7 +28,8 @@ public class PlanLimits {
             Plan.FREE, new Limits(3, 300, 7, Set.of(ChannelType.EMAIL)),
             Plan.PRO, new Limits(25, 60, 90, Set.of(ChannelType.EMAIL, ChannelType.SLACK)),
             Plan.BUSINESS, new Limits(UNLIMITED, 60, 365,
-                    Set.of(ChannelType.EMAIL, ChannelType.SLACK, ChannelType.SMS))
+                    // No SMS until a sender exists: a plan must never sell a channel that stays silent.
+                    Set.of(ChannelType.EMAIL, ChannelType.SLACK))
     );
 
     public Limits forPlan(Plan plan) {

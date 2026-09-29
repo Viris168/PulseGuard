@@ -9,10 +9,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <title>PulseGuard</title>
     <script>
-      // Apply the saved theme before first paint to avoid a flash.
+      // Apply the saved theme before first paint to avoid a flash. Light unless the user picked dark.
       try {
-        const t = localStorage.getItem('pg-theme');
-        if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme: dark)').matches)) {
+        if (localStorage.getItem('pg-theme') === 'dark') {
           document.documentElement.classList.add('dark');
         }
       } catch {}

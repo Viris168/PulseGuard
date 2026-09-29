@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../../auth/authContext'
 import { Button } from '../../components/ui/Button'
 import { Field, Input, PasswordInput } from '../../components/ui/Field'
@@ -18,6 +18,8 @@ function validate(email: string, password: string): Errors {
 
 export function LoginPage() {
   const { login } = useAuth()
+  // Set by ResetPasswordPage after a successful reset.
+  const passwordReset = (useLocation().state as { passwordReset?: boolean } | null)?.passwordReset === true
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -46,11 +48,19 @@ export function LoginPage() {
 
   return (
     <>
-      <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
+      <h1 className="text-xl font-semibold tracking-tight">Sign in</h1>
       <p className="mt-1.5 text-sm text-zinc-500 dark:text-zinc-400">Welcome back. Your monitors kept watch while you were away.</p>
 
-      <form onSubmit={onSubmit} noValidate className="mt-8 space-y-5">
+      <form onSubmit={onSubmit} noValidate className="mt-5 space-y-4">
         {banner && <FormBanner>{banner}</FormBanner>}
+        {passwordReset && !banner && (
+          <p
+            className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200"
+            role="status"
+          >
+            Password changed. Sign in with your new password.
+          </p>
+        )}
 
         <Field id="email" label="Email" error={errors.email}>
           <Input
@@ -74,13 +84,18 @@ export function LoginPage() {
             error={errors.password}
           />
         </Field>
+        <p className="-mt-2 text-right text-sm">
+          <Link to="/forgot-password" className="font-medium text-emerald-700 hover:underline dark:text-emerald-400">
+            Forgot password?
+          </Link>
+        </p>
 
         <Button type="submit" loading={submitting} className="w-full">
           Sign in
         </Button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
+      <p className="mt-5 text-center text-sm text-zinc-500 lg:hidden dark:text-zinc-400">
         New to PulseGuard?{' '}
         <Link to="/signup" className="font-medium text-emerald-700 hover:underline dark:text-emerald-400">
           Create an account

@@ -36,6 +36,8 @@ export interface Monitor {
   headers?: MonitorHeader[]
   /** HTTP POST/PUT only. Not in the monitors list. */
   requestBody?: string | null
+  /** True when read with an API key: the body exists but is write-only for keys. */
+  requestBodyHidden?: boolean
 }
 
 /** A saved request header. A secret one (Authorization, *-Token, *-Key…) never comes back with its value. */

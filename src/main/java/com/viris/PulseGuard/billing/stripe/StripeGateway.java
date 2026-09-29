@@ -26,6 +26,12 @@ public interface StripeGateway {
     /** @return the Stripe-hosted Customer Portal URL to send the browser to. */
     String createPortalSession(String customerId, String returnUrl);
 
+    /** Cancels at once (not at period end): used when the account itself is deleted. */
+    void cancelSubscription(String subscriptionId);
+
+    /** Keeps receipts and portal emails going to the address the account uses now. */
+    void updateCustomerEmail(String customerId, String email);
+
     /** The subscription as Stripe has it now; webhooks sync from this, not from the event payload. */
     SubscriptionSnapshot retrieveSubscription(String subscriptionId);
 }

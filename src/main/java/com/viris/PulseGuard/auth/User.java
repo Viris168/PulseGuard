@@ -63,6 +63,15 @@ public class User {
     @Column(name = "stripe_customer_id", length = 100)
     private String stripeCustomerId;
 
+    /** Null until the owner confirms the address; email alerts wait for it. */
+    @Setter
+    @Column(name = "email_verified_at")
+    private Instant emailVerifiedAt;
+
+    public boolean isEmailVerified() {
+        return emailVerifiedAt != null;
+    }
+
     // No setter: written by the database default (see V1__init.sql).
     // @Generated makes Hibernate read the value back after INSERT instead of leaving it null.
     @Generated(event = EventType.INSERT)

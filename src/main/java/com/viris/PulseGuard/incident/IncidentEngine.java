@@ -5,6 +5,7 @@ import com.viris.PulseGuard.check.CheckRepository;
 import com.viris.PulseGuard.enumeration.CheckResult;
 import com.viris.PulseGuard.enumeration.ErrorType;
 import com.viris.PulseGuard.enumeration.IncidentAction;
+import com.viris.PulseGuard.enumeration.MonitorState;
 import com.viris.PulseGuard.enumeration.IncidentStatus;
 import com.viris.PulseGuard.incident.dto.IncidentOpenedEvent;
 import com.viris.PulseGuard.incident.dto.IncidentResolvedEvent;
@@ -77,8 +78,11 @@ public class IncidentEngine {
     }
 
     /**
-     * A heartbeat's ping, in the caller's transaction (which has saved the ping itself). Records
-     * it as a passing check, so uptime, status bars and the status page count it like any check.
+     * A heartbeat's ping, in the caller's transaction (which has saved the ping itself). Also
+     * records a passing check, so uptime, status bars and the status page count heartbeats like
+     * any monitor, but at most about one per period: a job that pings every few seconds must
+     * not bury a missed deadline under thousands of passes. The ping that ends an outage always
+     * counts.
      */
     @Transactional
     public void heartbeatReceived(Long monitorId, Instant at) {
@@ -86,11 +90,17 @@ public class IncidentEngine {
         if (monitor == null || !monitor.isHeartbeat()) {
             return;
         }
+        Instant previous = monitor.getLastCheckedAt();
+        boolean counts = previous == null
+                || monitor.getState() != MonitorState.UP
+                || !at.isBefore(previous.plusSeconds(monitor.getIntervalSeconds() / 2));
         Check pass = new Check();
         pass.setMonitor(monitor);
         pass.setResult(CheckResult.UP);
         pass.setCheckedAt(at);
-        checkRepository.save(pass);
+        if (counts) {
+            checkRepository.save(pass);
+        }
 
         Transition transition = stateMachine.heartbeatPinged(monitor.getState());
         apply(monitor, transition);

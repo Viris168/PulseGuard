@@ -71,7 +71,7 @@ No key or link. The **same account** gets higher limits (`PlanLimits`):
 |---|---|---|---|
 | Monitors | 3 | 25 | Unlimited |
 | Min interval | 5 min | 1 min | 1 min |
-| Alerts | Email | Email + Slack | Email + Slack + SMS |
+| Alerts | Email | Email + Slack | Email + Slack (SMS once a sender exists) |
 | History | 7 days | 90 days | 1 year |
 
 Stripe flow: Upgrade → `POST /api/billing/checkout` → Stripe Checkout page →

@@ -84,7 +84,7 @@ Teams and solo developers running APIs, websites, or backend services often disc
 |---|---|---|---|---|---|
 | Free | $0 | 3 | 5 min | Email | 7 days |
 | Pro | $9–15/mo | 25 | 1 min | Email + Slack | 90 days |
-| Business | $30–50/mo | Unlimited | 1 min | Email + Slack + SMS | 1 year |
+| Business | $30–50/mo | Unlimited | 1 min | Email + Slack (SMS later) | 1 year |
 
 ---
 

@@ -7,6 +7,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.Instant;
+
 @Entity
 @Table(name = "notification_channels")
 @Getter
@@ -31,4 +33,20 @@ public class NotificationChannel {
 
     @Column(nullable = false)
     private boolean enabled = true;
+
+    /** Email only: when the address confirmed it wants this account's alerts. */
+    @Column(name = "verified_at")
+    private Instant verifiedAt;
+
+    /**
+     * Whether alerts may go to this channel's target. Non-email channels point at something the
+     * owner controls (their Slack webhook). An email address must have confirmed, unless it is
+     * the owner's own address and that is verified.
+     */
+    public boolean confirmedFor(User owner) {
+        if (type != ChannelType.EMAIL) {
+            return true;
+        }
+        return verifiedAt != null || (owner.isEmailVerified() && target.equals(owner.getEmail()));
+    }
 }

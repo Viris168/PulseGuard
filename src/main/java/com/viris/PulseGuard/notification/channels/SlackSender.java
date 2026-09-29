@@ -26,8 +26,8 @@ import java.util.Map;
  * the details as fields (times in each reader's time zone), an "Open in PulseGuard" button and a
  * footer. The top-level {@code text} is what phone notifications show.
  *
- * <p>Failures throw {@link SlackDeliveryException}, which the caller records as FAILED. No retry,
- * the same as email: an alert is delivered at most once.
+ * <p>Failures throw {@link SlackDeliveryException}, which the caller records as FAILED and, if
+ * the exception says it is retryable, tries again later (NotificationService#retryDue).
  */
 @Component
 public class SlackSender implements NotificationSender {
@@ -69,7 +69,7 @@ public class SlackSender implements NotificationSender {
             throw e;
         } catch (RestClientException e) {
             // Its message names the request URL, so only the kind of failure is kept.
-            throw new SlackDeliveryException("could not reach Slack (" + e.getClass().getSimpleName() + ")");
+            throw new SlackDeliveryException("could not reach Slack (" + e.getClass().getSimpleName() + ")", true);
         }
     }
 
@@ -82,7 +82,7 @@ public class SlackSender implements NotificationSender {
         try {
             uri = new URI(target);
         } catch (URISyntaxException | NullPointerException e) {
-            throw new SlackDeliveryException("target is not a Slack incoming webhook");
+            throw new SlackDeliveryException("target is not a Slack incoming webhook", false);
         }
         boolean valid = "https".equals(uri.getScheme())
                 && uri.getHost() != null
@@ -92,7 +92,7 @@ public class SlackSender implements NotificationSender {
                 && uri.getRawPath() != null
                 && uri.getRawPath().startsWith("/services/");
         if (!valid) {
-            throw new SlackDeliveryException("target is not a Slack incoming webhook");
+            throw new SlackDeliveryException("target is not a Slack incoming webhook", false);
         }
         return uri;
     }

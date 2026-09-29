@@ -5,8 +5,8 @@ package com.viris.PulseGuard.notification;
  * channels and use the test button to send them mail from our domain, which would burn
  * the sending reputation real alerts depend on.
  * <p>
- * Implementations must fail open, like the login limiter: a Redis outage must not break
- * a feature that exists to check that alerts work.
+ * If the shared store is down, implementations keep counting per node (LocalFixedWindow):
+ * a Redis outage must neither break the feature nor lift the limit.
  */
 public interface TestAlertThrottle {
 

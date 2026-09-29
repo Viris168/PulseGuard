@@ -331,7 +331,12 @@ sequenceDiagram
 | GET | `/api/channels` / POST | List / add alert channels |
 | PATCH | `/api/channels/{id}` / DELETE | Enable, disable or delete a channel |
 | POST | `/api/channels/{id}/test` | Send a test alert |
+| POST | `/api/channels/{id}/resend-confirmation` / `/api/channels/confirm` | Email a channel address its confirmation link again / confirm it from the link (no auth) |
 | PATCH | `/api/auth/me` | Change my name |
+| DELETE | `/api/auth/me` | Delete my account (session only; cancels the subscription first) |
+| POST | `/api/auth/forgot-password` / `reset-password` | Email a single-use reset link / set a new password with it (no auth) |
+| POST | `/api/auth/verify-email` / `verify-email/resend` | Verify the sign-up email (no auth) / send a new link |
+| POST | `/api/auth/email` / `confirm-email` | Start an email change (session only) / confirm it from the link (no auth) |
 | GET | `/api/api-keys` / POST | List / create personal API keys (session only; the key is returned once) |
 | DELETE | `/api/api-keys/{id}` | Revoke a key (session only) |
 | GET | `/api/status-page` / PUT | My status page (204 until created) / create or replace it |

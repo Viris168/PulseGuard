@@ -121,6 +121,10 @@ pulseguard:
   notification:
     # Sender shown on alert emails.
     from: ${PULSEGUARD_NOTIFICATION_FROM}
+    retry:
+      # Wait before each retry of a failed alert; three retries over about 36 minutes.
+      backoff: ${PULSEGUARD_ALERT_RETRY_BACKOFF:1m,5m,30m}
+      sweep-interval: ${PULSEGUARD_ALERT_RETRY_SWEEP_INTERVAL:30s}
     slack:
       # Alerts share a small pool (task.execution above); a slow Slack must not hold it.
       connect-timeout: 5s
@@ -128,6 +132,14 @@ pulseguard:
   stats:
     # How long cached dashboard stats are served; checks run at most every 60s.
     cache-ttl: ${PULSEGUARD_STATS_CACHE_TTL}
+  account-email:
+    # How long emailed links work: "forgot password", and verification / email change.
+    reset-token-ttl: ${PULSEGUARD_PASSWORD_RESET_TTL:30m}
+    verify-token-ttl: ${PULSEGUARD_EMAIL_VERIFY_TTL:24h}
+    # Emails of one kind per address, and requests per IP (all kinds), within the window.
+    max-per-email: ${PULSEGUARD_ACCOUNT_EMAIL_MAX_PER_EMAIL:3}
+    max-per-ip: ${PULSEGUARD_ACCOUNT_EMAIL_MAX_PER_IP:10}
+    window: ${PULSEGUARD_ACCOUNT_EMAIL_WINDOW:1h}
   heartbeat:
     # Public origin jobs reach the API at; ping URLs are {this}/api/ping/{token}.
     ping-base-url: ${PULSEGUARD_PING_BASE_URL:http://localhost:8080}

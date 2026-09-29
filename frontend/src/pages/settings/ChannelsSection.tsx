@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { Hash, Lock, Mail, Send, Smartphone, Trash2, Webhook, type LucideIcon } from 'lucide-react'
-import { CHANNEL_RULES, createChannel, deleteChannel, listChannels, sendTestAlert, setChannelEnabled } from '../../api/channels'
+import { CHANNEL_RULES, createChannel, deleteChannel, listChannels, resendChannelConfirmation, sendTestAlert, setChannelEnabled } from '../../api/channels'
 import { ApiError } from '../../api/errors'
 import { useAuth } from '../../auth/authContext'
 import type { ChannelType, NotificationChannel } from '../../types/incident'
@@ -26,7 +26,6 @@ const TYPES: { type: ChannelType; label: string; icon: LucideIcon; placeholder: 
     placeholder: 'https://hooks.slack.com/services/…',
     hint: 'Create an incoming webhook in Slack and paste its URL.',
   },
-  { type: 'SMS', label: 'SMS', icon: Smartphone, placeholder: '+85512345678', hint: 'International format with country code.' },
 ]
 
 const ICON: Record<ChannelType, LucideIcon> = { EMAIL: Mail, SLACK: Hash, SMS: Smartphone, TELEGRAM: Send, WEBHOOK: Webhook }
@@ -51,7 +50,7 @@ export function ChannelsSection() {
   const [targetError, setTargetError] = useState<string | null>(null)
   const [addError, setAddError] = useState<{ message: string; planLimit: boolean } | null>(null)
   const [adding, setAdding] = useState(false)
-  const [added, setAdded] = useState(false)
+  const [added, setAdded] = useState<string | null>(null)
 
   const [busy, setBusy] = useState<number | null>(null)
   const [tested, setTested] = useState<Record<number, 'ok' | string>>({})
@@ -70,7 +69,7 @@ export function ChannelsSection() {
 
   async function onAdd(e: FormEvent) {
     e.preventDefault()
-    setAdded(false)
+    setAdded(null)
     setAddError(null)
     const rule = CHANNEL_RULES[type]
     const value = target.trim()
@@ -82,7 +81,7 @@ export function ChannelsSection() {
       const created = await createChannel({ type, target: value })
       setChannels((list) => [...(list ?? []), created])
       setTarget('')
-      setAdded(true)
+      setAdded(created.awaitingConfirmation ? `Added. We emailed ${value} a link to confirm it wants these alerts.` : 'Channel added')
     } catch (err) {
       const { fields, banner } = readApiError(err)
       if (fields.target) setTargetError(fields.target)
@@ -94,12 +93,28 @@ export function ChannelsSection() {
 
   async function toggle(c: NotificationChannel, enabled: boolean) {
     setBusy(c.id)
-    setTested(({ [c.id]: _, ...rest }) => rest)
+    setTested((t) => {
+      const next = { ...t }
+      delete next[c.id]
+      return next
+    })
     try {
       const updated = await setChannelEnabled(c.id, enabled)
       setChannels((list) => list?.map((x) => (x.id === c.id ? updated : x)) ?? null)
     } catch (err) {
       setTested((t) => ({ ...t, [c.id]: err instanceof Error ? err.message : 'Could not update channel' }))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function resend(c: NotificationChannel) {
+    setBusy(c.id)
+    try {
+      await resendChannelConfirmation(c.id)
+      setTested((t) => ({ ...t, [c.id]: 'resent' }))
+    } catch (err) {
+      setTested((t) => ({ ...t, [c.id]: err instanceof Error ? err.message : 'Could not send the link' }))
     } finally {
       setBusy(null)
     }
@@ -169,25 +184,37 @@ export function ChannelsSection() {
                           className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 hover:underline dark:bg-amber-500/10 dark:text-amber-300"
                         >
                           <Lock className="size-3" aria-hidden />
-                          Needs {planFor(c.type)?.name}
+                          {/* A type no plan offers any more (SMS, until it has a sender). */}
+                          {planFor(c.type) ? `Needs ${planFor(c.type)?.name}` : 'Not available'}
                         </Link>
+                      )}
+                      {included && c.awaitingConfirmation && (
+                        <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+                          Awaiting confirmation
+                        </span>
                       )}
                     </p>
                     <p className="truncate text-sm text-zinc-500 dark:text-zinc-400" title={c.type === 'EMAIL' || c.type === 'SMS' ? c.target : undefined}>
                       {displayTarget(c)}
                     </p>
                     {result && (
-                      <p className={cn('mt-0.5 text-xs', result === 'ok' ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-600 dark:text-red-400')}>
-                        {result === 'ok' ? 'Test alert sent — check your inbox or channel.' : result}
+                      <p className={cn('mt-0.5 text-xs', result === 'ok' || result === 'resent' ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-600 dark:text-red-400')}>
+                        {result === 'ok' ? 'Test alert sent — check your inbox or channel.' : result === 'resent' ? 'Confirmation link sent again.' : result}
                       </p>
                     )}
                   </div>
                   {/* Own row on phones so the target isn't squeezed to a few characters. */}
                   <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
-                    <Button size="sm" variant="ghost" onClick={() => test(c)} disabled={busy === c.id || !included || !c.enabled}>
-                      {busy === c.id && result === '' ? <Spinner className="size-3.5" /> : null}
-                      Send test
-                    </Button>
+                    {c.awaitingConfirmation ? (
+                      <Button size="sm" variant="ghost" onClick={() => resend(c)} disabled={busy === c.id || !included}>
+                        Resend link
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="ghost" onClick={() => test(c)} disabled={busy === c.id || !included || !c.enabled}>
+                        {busy === c.id && result === '' ? <Spinner className="size-3.5" /> : null}
+                        Send test
+                      </Button>
+                    )}
                     <Switch
                       checked={c.enabled && included}
                       onChange={(v) => toggle(c, v)}
@@ -217,7 +244,7 @@ export function ChannelsSection() {
       <SettingsCard
         title="Add a channel"
         onSubmit={onAdd}
-        success={added ? 'Channel added' : null}
+        success={added}
         error={
           addError &&
           (addError.planLimit ? (
@@ -238,7 +265,7 @@ export function ChannelsSection() {
         }
       >
         <div className="max-w-xl space-y-5">
-          <div role="radiogroup" aria-label="Channel type" className="grid grid-cols-3 gap-2">
+          <div role="radiogroup" aria-label="Channel type" className="grid grid-cols-2 gap-2">
             {TYPES.map((t) => {
               const locked = !allowed.includes(t.type)
               const Icon = t.icon
@@ -252,7 +279,7 @@ export function ChannelsSection() {
                     setType(t.type)
                     setTargetError(null)
                     setAddError(null)
-                    setAdded(false)
+                    setAdded(null)
                   }}
                   className={cn(
                     'flex flex-col items-center gap-1 rounded-lg border px-3 py-3 text-sm font-medium transition-colors',
@@ -283,7 +310,7 @@ export function ChannelsSection() {
                 onChange={(e) => {
                   setTarget(e.target.value)
                   setTargetError(null)
-                  setAdded(false)
+                  setAdded(null)
                 }}
                 placeholder={typeInfo.placeholder}
                 className={type === 'SLACK' ? 'font-mono' : undefined}

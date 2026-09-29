@@ -1,7 +1,16 @@
 package com.viris.PulseGuard.auth;
 
 import com.viris.PulseGuard.auth.dto.AuthResponse;
+import com.viris.PulseGuard.auth.account.AccountDeletionService;
+import com.viris.PulseGuard.auth.account.EmailChangeService;
+import com.viris.PulseGuard.auth.account.EmailVerificationService;
+import com.viris.PulseGuard.auth.dto.ChangeEmailRequest;
 import com.viris.PulseGuard.auth.dto.ChangePasswordRequest;
+import com.viris.PulseGuard.auth.dto.DeleteAccountRequest;
+import com.viris.PulseGuard.auth.dto.TokenRequest;
+import com.viris.PulseGuard.auth.dto.ForgotPasswordRequest;
+import com.viris.PulseGuard.auth.dto.ResetPasswordRequest;
+import com.viris.PulseGuard.auth.reset.PasswordResetService;
 import com.viris.PulseGuard.auth.dto.LoginRequest;
 import com.viris.PulseGuard.auth.dto.RefreshRequest;
 import com.viris.PulseGuard.auth.dto.RegisterRequest;
@@ -24,6 +33,10 @@ public class AuthController {
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final AuthService authService;
+    private final PasswordResetService passwordResetService;
+    private final EmailVerificationService emailVerificationService;
+    private final EmailChangeService emailChangeService;
+    private final AccountDeletionService accountDeletionService;
 
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
@@ -61,6 +74,58 @@ public class AuthController {
     public AuthResponse changePassword(@AuthenticationPrincipal UserPrincipal principal,
                                        @Valid @RequestBody ChangePasswordRequest request) {
         return authService.changePassword(principal, request);
+    }
+
+    /** 202 whether or not the address has an account; the email, if any, follows. */
+    @PostMapping("/forgot-password")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public void forgotPassword(@Valid @RequestBody ForgotPasswordRequest request, HttpServletRequest servletRequest) {
+        passwordResetService.requestReset(request.email(), servletRequest.getRemoteAddr());
+    }
+
+    /** 204, then the user signs in with the new password; every old session is revoked. */
+    @PostMapping("/reset-password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        passwordResetService.resetPassword(request.token(), request.newPassword());
+    }
+
+    /** From the link emailed at sign-up; works signed in or not. */
+    @PostMapping("/verify-email")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void verifyEmail(@Valid @RequestBody TokenRequest request) {
+        emailVerificationService.verify(request.token());
+    }
+
+    @PostMapping("/verify-email/resend")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public void resendVerification(@AuthenticationPrincipal UserPrincipal principal, HttpServletRequest servletRequest) {
+        emailVerificationService.resend(principal.getUserId(), servletRequest.getRemoteAddr());
+    }
+
+    /** Sends a confirmation link to the new address; nothing changes until it is used. */
+    @PostMapping("/email")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public void changeEmail(@AuthenticationPrincipal UserPrincipal principal,
+                            @Valid @RequestBody ChangeEmailRequest request,
+                            HttpServletRequest servletRequest) {
+        emailChangeService.requestChange(principal.getUserId(), request.newEmail(), request.currentPassword(),
+                servletRequest.getRemoteAddr());
+    }
+
+    /** From the link sent to the new address; works signed in or not. */
+    @PostMapping("/confirm-email")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void confirmEmail(@Valid @RequestBody TokenRequest request) {
+        emailChangeService.confirm(request.token());
+    }
+
+    /** Cancels any subscription, then deletes the account and everything it owns. */
+    @DeleteMapping("/me")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteAccount(@AuthenticationPrincipal UserPrincipal principal,
+                              @Valid @RequestBody DeleteAccountRequest request) {
+        accountDeletionService.deleteAccount(principal.getUserId(), request.currentPassword());
     }
 
     @GetMapping("/me")

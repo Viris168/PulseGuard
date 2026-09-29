@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import com.viris.PulseGuard.common.ratelimit.LocalFixedWindow;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -18,6 +19,7 @@ public class RedisTestAlertThrottle implements TestAlertThrottle {
     private final StringRedisTemplate redis;
     private final int maxTests;
     private final Duration window;
+    private final LocalFixedWindow fallback = new LocalFixedWindow();
 
     public RedisTestAlertThrottle(StringRedisTemplate redis,
                                   @Value("${pulseguard.channels.max-tests:5}") int maxTests,
@@ -37,8 +39,8 @@ public class RedisTestAlertThrottle implements TestAlertThrottle {
             }
             return count == null || count <= maxTests;
         } catch (DataAccessException ex) {
-            log.warn("Rate-limit store unavailable; allowing test alert for userId={}", userId);
-            return true;
+            log.warn("Rate-limit store unavailable; counting test alerts locally for userId={}", userId);
+            return fallback.increment(PREFIX + userId, window) <= maxTests;
         }
     }
 }

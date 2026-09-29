@@ -37,6 +37,16 @@ export async function deleteChannel(id: number): Promise<void> {
   await api<void>(`/api/channels/${id}`, { method: 'DELETE' })
 }
 
+/** POST /api/channels/{id}/resend-confirmation → 202. For an email channel still awaiting confirmation. */
+export async function resendChannelConfirmation(id: number): Promise<void> {
+  await api<void>(`/api/channels/${id}/resend-confirmation`, { method: 'POST' })
+}
+
+/** POST /api/channels/confirm { token } → 204. From the link emailed to the channel's address; no session needed. */
+export async function confirmChannel(token: string): Promise<void> {
+  await api<void>('/api/channels/confirm', { method: 'POST', body: { token }, auth: false })
+}
+
 /** POST /api/channels/{id}/test → 204. Sends for real; throttled per user (429). */
 export async function sendTestAlert(id: number): Promise<void> {
   await api<void>(`/api/channels/${id}/test`, { method: 'POST' })

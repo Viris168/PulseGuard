@@ -8,7 +8,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Duration;
 import java.util.Locale;
 
 /**
@@ -19,8 +18,11 @@ import java.util.Locale;
 @RequiredArgsConstructor
 public class PublicStatusPageController {
 
-    /** Lets a CDN or browser share the response briefly; the page itself refreshes every minute. */
-    private static final CacheControl CACHE = CacheControl.maxAge(Duration.ofSeconds(30)).cachePublic();
+    /**
+     * Revalidate every time. Load is taken by the server-side Redis cache, which saving the page
+     * evicts at once; a browser or CDN copy would keep an unpublished page visible for its max-age.
+     */
+    private static final CacheControl CACHE = CacheControl.noCache();
 
     private final PublicStatusPageService publicStatusPageService;
 

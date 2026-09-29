@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import com.viris.PulseGuard.common.ratelimit.LocalFixedWindow;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -22,6 +23,7 @@ public class RedisLoginRateLimiter implements LoginRateLimiter {
     private final int maxAttempts;
     private final int maxAttemptsPerIp;
     private final Duration window;
+    private final LocalFixedWindow fallback = new LocalFixedWindow();
 
     public RedisLoginRateLimiter(StringRedisTemplate redis,
                                  @Value("${pulseguard.login.max-attempts}") int maxAttempts,
@@ -40,8 +42,11 @@ public class RedisLoginRateLimiter implements LoginRateLimiter {
             boolean ipAllowed = increment(IP_PREFIX + clientIp) <= maxAttemptsPerIp;
             return pairAllowed && ipAllowed;
         } catch (DataAccessException ex) {
-            log.warn("Rate-limit store unavailable; allowing login attempt");
-            return true;
+            // Not fail-open: counted in this node's memory until Redis is back.
+            log.warn("Rate-limit store unavailable; counting login attempts locally");
+            boolean pairAllowed = fallback.increment(PAIR_PREFIX + clientIp + ":" + email, window) <= maxAttempts;
+            boolean ipAllowed = fallback.increment(IP_PREFIX + clientIp, window) <= maxAttemptsPerIp;
+            return pairAllowed && ipAllowed;
         }
     }
 
@@ -50,7 +55,9 @@ public class RedisLoginRateLimiter implements LoginRateLimiter {
         try {
             // Only the pair counter: succeeding on one account must not refill the IP budget.
             redis.delete(PAIR_PREFIX + clientIp + ":" + email);
+            fallback.reset(PAIR_PREFIX + clientIp + ":" + email);
         } catch (DataAccessException ex) {
+            fallback.reset(PAIR_PREFIX + clientIp + ":" + email);
             log.warn("Rate-limit store unavailable; attempt counter not cleared");
         }
     }

@@ -251,4 +251,20 @@ class ApiKeyApiIntegrationTest {
         create(alice, "One too many").andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("You can have up to 10 keys. Revoke one you no longer use."));
     }
+
+    @Test
+    void changingThePasswordRevokesEveryKey() throws Exception {
+        String key = bearer(createKey(alice, "CI"));
+        mockMvc.perform(get("/api/monitors").header(HttpHeaders.AUTHORIZATION, key)).andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/auth/password").header(HttpHeaders.AUTHORIZATION, alice)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"currentPassword":"Sup3rSecret!","newPassword":"brand-new-password"}"""))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/monitors").header(HttpHeaders.AUTHORIZATION, key))
+                .andExpect(status().isUnauthorized());
+        assertThat(apiKeys.count()).isZero();
+    }
 }

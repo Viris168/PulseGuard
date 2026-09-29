@@ -36,7 +36,7 @@ export const PLANS: PlanInfo[] = [
     name: 'Business',
     price: 39,
     tagline: 'For teams that promise uptime to customers',
-    limits: { maxMonitors: Infinity, minIntervalSeconds: 60, retentionDays: 365, channels: ['EMAIL', 'SLACK', 'SMS'] },
+    limits: { maxMonitors: Infinity, minIntervalSeconds: 60, retentionDays: 365, channels: ['EMAIL', 'SLACK'] },
   },
 ]
 

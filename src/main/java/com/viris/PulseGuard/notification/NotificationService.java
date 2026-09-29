@@ -14,6 +14,11 @@ import com.viris.PulseGuard.notification.dto.AlertMessage;
 import com.viris.PulseGuard.notification.repository.NotificationChannelRepository;
 import com.viris.PulseGuard.notification.repository.NotificationRepository;
 import com.viris.PulseGuard.notification.repository.NotificationSender;
+import com.viris.PulseGuard.enumeration.IncidentStatus;
+import com.viris.PulseGuard.notification.channels.SlackDeliveryException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.mail.MailParseException;
+import org.springframework.mail.MailPreparationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -25,6 +30,7 @@ import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -57,6 +63,17 @@ public class NotificationService {
     private final Map<ChannelType, NotificationSender> senders;
     private final TransactionTemplate readTx;
     private final TransactionTemplate writeTx;
+    private final AlertRetryProperties retry;
+
+    /** Retries handled per sweep; more due ones wait for the next sweep. */
+    static final int RETRY_BATCH = 100;
+
+    /**
+     * A send still PENDING after this died with the app. Retried rather than left for good: if
+     * the crash came after the send, the alert goes out twice, which beats never learning of
+     * an outage. Sends take seconds, so this cannot catch one still in progress.
+     */
+    static final Duration STUCK_AFTER = Duration.ofMinutes(15);
 
     /** Spring injects every {@link NotificationSender}; a new channel type needs no change here. */
     public NotificationService(IncidentRepository incidentRepository,
@@ -65,7 +82,8 @@ public class NotificationService {
                                AlertMessageFactory messages,
                                PlanLimits planLimits,
                                List<NotificationSender> senders,
-                               PlatformTransactionManager transactionManager) {
+                               PlatformTransactionManager transactionManager,
+                               AlertRetryProperties retry) {
         this.incidentRepository = incidentRepository;
         this.channelRepository = channelRepository;
         this.notificationRepository = notificationRepository;
@@ -79,6 +97,7 @@ public class NotificationService {
         // lost claim must not take the other channels' writes down with it.
         this.writeTx = new TransactionTemplate(transactionManager);
         this.writeTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.retry = retry;
     }
 
     @Async
@@ -125,6 +144,11 @@ public class NotificationService {
                 // Downgrades switch these off already; this is the server-side guarantee (rule 5)
                 // for any row that slipped past, e.g. one enabled before plan gating existed.
                 .filter(channel -> {
+                    if (!channel.confirmedFor(owner)) {
+                        log.info("Skipping EMAIL channelId={} for incidentId={}: address not confirmed",
+                                channel.getId(), incidentId);
+                        return false;
+                    }
                     boolean allowed = planLimits.allowsChannel(owner.getPlan(), channel.getType());
                     if (!allowed) {
                         log.info("Skipping {} channelId={} for incidentId={}: not on the {} plan",
@@ -157,20 +181,156 @@ public class NotificationService {
             return;
         }
 
-        NotificationStatus outcome;
-        try {
-            sender.send(target.address(), message);
-            outcome = NotificationStatus.SENT;
+        Exception failure = send(sender, target.address(), message);
+        if (failure == null) {
             log.info("Sent {} alert for incidentId={} via {} channelId={}",
                     eventType, incidentId, target.type(), target.channelId());
-        } catch (Exception e) {
-            outcome = NotificationStatus.FAILED;
+        } else {
             // Never log the target, nor the exception message: for webhooks and Slack the target
             // is itself a secret URL, and HTTP client exceptions quote the request URL.
             log.error("Failed {} alert for incidentId={} via {} channelId={}: {}",
-                    eventType, incidentId, target.type(), target.channelId(), e.getClass().getSimpleName());
+                    eventType, incidentId, target.type(), target.channelId(), failure.getClass().getSimpleName());
         }
-        finish(claimId, outcome);
+        finish(claimId, failure);
+    }
+
+    /** @return null when sent, else the failure */
+    private static Exception send(NotificationSender sender, String address, AlertMessage message) {
+        try {
+            sender.send(address, message);
+            return null;
+        } catch (Exception e) {
+            return e;
+        }
+    }
+
+    /**
+     * Whether trying again later could help. Timeouts, refused connections and 5xx do; a
+     * revoked Slack webhook or an address the mail server cannot parse never will.
+     */
+    static boolean retryable(Exception failure) {
+        if (failure instanceof SlackDeliveryException slack) {
+            return slack.isRetryable();
+        }
+        return !(failure instanceof MailParseException || failure instanceof MailPreparationException);
+    }
+
+    /**
+     * Sends every failed alert whose retry is due. Run by AlertRetryJob. Each retry is claimed
+     * first (FAILED → PENDING in one conditional UPDATE), so across nodes it is sent once.
+     *
+     * @return how many were attempted
+     */
+    public int retryDue(Instant now) {
+        if (!retry.backoff().isEmpty()) {
+            Integer released = writeTx.execute(status -> notificationRepository.releaseStuck(now, now.minus(STUCK_AFTER)));
+            if (released != null && released > 0) {
+                log.warn("Retrying {} alert(s) left PENDING by an interrupted send", released);
+            }
+        }
+        List<Long> due = notificationRepository.findRetryDueIds(now, PageRequest.of(0, RETRY_BATCH));
+        int attempted = 0;
+        for (Long id : due) {
+            Integer claimed = writeTx.execute(status -> notificationRepository.claimRetry(id, now));
+            if (claimed == null || claimed == 0) {
+                continue; // another node took it
+            }
+            attempted++;
+            Resend resend = readTx.execute(status -> prepareResend(id));
+            if (resend == null || resend.skipReason() != null) {
+                log.info("Giving up alert notificationId={}: {}", id,
+                        resend == null ? "notification gone" : resend.skipReason());
+                finishRetry(id, false, null);
+                continue;
+            }
+            Exception failure = send(resend.sender(), resend.address(), resend.message());
+            if (failure == null) {
+                log.info("Sent {} alert on retry for incidentId={} via {} channelId={}",
+                        resend.eventType(), resend.incidentId(), resend.type(), resend.channelId());
+            } else {
+                log.warn("Retry failed for {} alert incidentId={} via {} channelId={}: {}",
+                        resend.eventType(), resend.incidentId(), resend.type(), resend.channelId(),
+                        failure.getClass().getSimpleName());
+            }
+            finishRetry(id, true, failure);
+        }
+        return attempted;
+    }
+
+    /** What a resend needs, or why it should not happen. */
+    private record Resend(Long incidentId, Long channelId, ChannelType type, NotificationEventType eventType,
+                          NotificationSender sender, String address, AlertMessage message, String skipReason) {
+
+        static Resend skip(String reason) {
+            return new Resend(null, null, null, null, null, null, null, reason);
+        }
+    }
+
+    /**
+     * Re-checks everything the first send checked, because time has passed: the channel may be
+     * off or off-plan now, and a "down" alert for an incident that has since resolved would
+     * only confuse; its "recovered" alert tells the reader what they need.
+     */
+    private Resend prepareResend(Long id) {
+        Notification n = notificationRepository.findForRetry(id).orElse(null);
+        if (n == null) {
+            return null;
+        }
+        NotificationChannel channel = n.getChannel();
+        Incident incident = n.getIncident();
+        Monitor monitor = incident.getMonitor();
+        User owner = monitor.getUser();
+        if (!channel.isEnabled()) {
+            return Resend.skip("channel disabled");
+        }
+        if (!planLimits.allowsChannel(owner.getPlan(), channel.getType())) {
+            return Resend.skip("channel not on the " + owner.getPlan() + " plan");
+        }
+        if (!channel.confirmedFor(owner)) {
+            return Resend.skip("address not confirmed");
+        }
+        NotificationSender sender = senders.get(channel.getType());
+        if (sender == null) {
+            return Resend.skip("no sender for " + channel.getType());
+        }
+        if (n.getEventType() == NotificationEventType.OPENED && incident.getStatus() == IncidentStatus.RESOLVED) {
+            return Resend.skip("incident already resolved");
+        }
+        AlertMessage message = n.getEventType() == NotificationEventType.OPENED
+                ? messages.opened(monitor, incident)
+                : messages.resolved(monitor, incident);
+        return new Resend(incident.getId(), channel.getId(), channel.getType(), n.getEventType(),
+                sender, channel.getTarget(), message, null);
+    }
+
+    /**
+     * Records a retry's outcome. {@code attempted} is false when it was given up without
+     * sending; then it just ends as FAILED with nothing further due.
+     */
+    private void finishRetry(Long id, boolean attempted, Exception failure) {
+        writeTx.executeWithoutResult(status -> notificationRepository.findById(id).ifPresent(record -> {
+            Instant now = Instant.now();
+            if (attempted) {
+                record.setAttempts(record.getAttempts() + 1);
+                record.setSentAt(now);
+            }
+            if (attempted && failure == null) {
+                record.setStatus(NotificationStatus.SENT);
+                record.setNextAttemptAt(null);
+                return;
+            }
+            record.setStatus(NotificationStatus.FAILED);
+            record.setNextAttemptAt(attempted ? nextAttempt(record.getAttempts(), failure, now) : null);
+        }));
+    }
+
+    /** When to try again after the {@code attempts}-th failure, or null to give up. */
+    private Instant nextAttempt(int attempts, Exception failure, Instant now) {
+        if (!retryable(failure)) {
+            return null;
+        }
+        Duration delay = retry.delayAfter(attempts);
+        return delay == null ? null : now.plus(delay);
     }
 
     /** Inserts the PENDING row; the unique constraint lets exactly one delivery win. Null if it lost. */
@@ -190,10 +350,13 @@ public class NotificationService {
         }
     }
 
-    private void finish(Long claimId, NotificationStatus outcome) {
+    /** Records the first send's outcome, scheduling a retry if it failed and one could help. */
+    private void finish(Long claimId, Exception failure) {
         writeTx.executeWithoutResult(status -> notificationRepository.findById(claimId).ifPresent(record -> {
-            record.setStatus(outcome);
-            record.setSentAt(Instant.now());
+            Instant now = Instant.now();
+            record.setStatus(failure == null ? NotificationStatus.SENT : NotificationStatus.FAILED);
+            record.setSentAt(now);
+            record.setNextAttemptAt(failure == null ? null : nextAttempt(record.getAttempts(), failure, now));
         }));
     }
 }

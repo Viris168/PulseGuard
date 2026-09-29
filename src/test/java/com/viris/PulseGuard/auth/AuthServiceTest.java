@@ -69,7 +69,9 @@ class AuthServiceTest {
         provider.setPasswordEncoder(passwordEncoder);
 
         authService = new AuthService(users, passwordEncoder, new ProviderManager(provider),
-                jwtService, denylist, new InMemoryLoginRateLimiter(5, 20), channels);
+                jwtService, denylist, new InMemoryLoginRateLimiter(5, 20), channels,
+                org.mockito.Mockito.mock(com.viris.PulseGuard.auth.account.EmailVerificationService.class),
+                org.mockito.Mockito.mock(com.viris.PulseGuard.apikey.ApiKeyRepository.class));
     }
 
     private User storedUser() {
@@ -338,7 +340,7 @@ class AuthServiceTest {
 
         assertThatThrownBy(() -> authService.changePassword(UserPrincipal.from(stored),
                 new ChangePasswordRequest("wrong", "brand-new-password")))
-                .isInstanceOf(InvalidCredentialsException.class);
+                .isInstanceOf(com.viris.PulseGuard.common.exception.IncorrectPasswordException.class);
         verify(users, never()).save(any());
     }
 

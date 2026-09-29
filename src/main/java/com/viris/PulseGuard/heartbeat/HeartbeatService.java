@@ -5,6 +5,7 @@ import com.viris.PulseGuard.common.exception.InvalidMonitorException;
 import com.viris.PulseGuard.common.exception.MonitorNotFoundException;
 import com.viris.PulseGuard.common.exception.MonitorPausedException;
 import com.viris.PulseGuard.heartbeat.dto.PingResponse;
+import com.viris.PulseGuard.enumeration.MonitorState;
 import com.viris.PulseGuard.incident.IncidentEngine;
 import com.viris.PulseGuard.monitor.Monitor;
 import com.viris.PulseGuard.monitor.MonitorRepository;
@@ -18,6 +19,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.function.Supplier;
@@ -34,7 +36,15 @@ public class HeartbeatService {
     private static final int MAX_ATTEMPTS = 3;
     private static final int MAX_IP_LENGTH = 45;
 
-    public enum Outcome { RECORDED, PAUSED }
+    /**
+     * Pings closer together than this, while the monitor is up, are answered but not stored: a
+     * job stuck in a loop (or retrying too eagerly) would otherwise grow the pings table without
+     * bound. Heartbeat periods are a minute at least, so no real schedule is affected.
+     */
+    static final Duration MIN_SPACING = Duration.ofSeconds(10);
+
+    /** DUPLICATE: accepted, but too soon after the previous ping to be worth storing. */
+    public enum Outcome { RECORDED, PAUSED, DUPLICATE }
 
     private final MonitorRepository monitorRepository;
     private final PingRepository pingRepository;
@@ -66,9 +76,19 @@ public class HeartbeatService {
                 log.debug("Ping ignored for paused monitorId={}", monitor.getId());
                 return Outcome.PAUSED;
             }
+            if (isDuplicate(monitor, Instant.now())) {
+                return Outcome.DUPLICATE;
+            }
             record(monitor, sourceIp);
             return Outcome.RECORDED;
         });
+    }
+
+    /** Too soon after the last ping, with nothing to change: an outage always ends at the next ping. */
+    private static boolean isDuplicate(Monitor monitor, Instant now) {
+        Instant previous = monitor.getLastCheckedAt();
+        return previous != null && monitor.getState() == MonitorState.UP
+                && now.isBefore(previous.plus(MIN_SPACING));
     }
 
     /** "Send test ping" from the dashboard: a real ping, from the owner's own address. */

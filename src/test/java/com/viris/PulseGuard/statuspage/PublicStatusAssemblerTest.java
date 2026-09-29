@@ -123,7 +123,7 @@ class PublicStatusAssemblerTest {
 
         var listed = assemble(inputs, List.of(), incidents).incidents();
 
-        assertThat(listed).extracting("id").containsExactly(2L, 1L);
+        assertThat(listed).extracting("componentName").containsExactly("Payments", "API");
         assertThat(listed.getFirst().componentName()).isEqualTo("Payments");
         assertThat(listed.getFirst().recovering()).isTrue();
         assertThat(listed.get(1).recovering()).isFalse();

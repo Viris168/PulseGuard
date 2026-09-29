@@ -226,4 +226,52 @@ class MonitorRequestOptionsIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.fieldErrors.requestBody").value("Only POST and PUT checks can send a body"));
     }
+
+    private String apiKey() throws Exception {
+        String created = mockMvc.perform(post("/api/api-keys").header(HttpHeaders.AUTHORIZATION, alice)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"CI\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return "Bearer " + objectMapper.readTree(created).get("secret").asString();
+    }
+
+    @Test
+    void anApiKeyNeverReadsTheBodyAndCannotEraseItByAccident() throws Exception {
+        long id = createFull();
+        String key = apiKey();
+
+        mockMvc.perform(get("/api/monitors/" + id).header(HttpHeaders.AUTHORIZATION, key))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.requestBody").doesNotExist())
+                .andExpect(jsonPath("$.requestBodyHidden").value(true));
+        // The signed-in owner still sees it, to edit it.
+        mockMvc.perform(get("/api/monitors/" + id).header(HttpHeaders.AUTHORIZATION, alice))
+                .andExpect(jsonPath("$.requestBody").value("{\"query\":\"{ health }\"}"))
+                .andExpect(jsonPath("$.requestBodyHidden").value(false));
+
+        // A script writes back what it read (no body): the saved body survives.
+        mockMvc.perform(put("/api/monitors/" + id).header(HttpHeaders.AUTHORIZATION, key)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"GraphQL renamed","url":"https://api.example.com/graphql","method":"POST",
+                                 "expectedStatuses":[200],"intervalSeconds":300,"timeoutMs":5000,
+                                 "headers":[{"name":"Authorization","value":null}]}
+                                """))
+                .andExpect(status().isOk());
+        Monitor saved = monitors.findWithHeadersById(id).orElseThrow();
+        assertThat(saved.getRequestBody()).isEqualTo("{\"query\":\"{ health }\"}");
+        assertThat(saved.getHeaders().getFirst().getValue()).isEqualTo("Bearer s3cret");
+    }
+
+    @Test
+    void aBlankBodyClearsIt() throws Exception {
+        long id = createFull();
+
+        update(id, """
+                {"name":"GraphQL","url":"https://api.example.com/graphql","method":"POST",
+                 "expectedStatuses":[200],"intervalSeconds":300,"timeoutMs":5000,"requestBody":""}
+                """).andExpect(status().isOk());
+
+        assertThat(monitors.findById(id).orElseThrow().getRequestBody()).isNull();
+    }
 }

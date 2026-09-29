@@ -110,6 +110,31 @@ public class GlobalExceptionHandler {
                 .body(ApiError.of(ex.getStatus().value(), ex.getMessage(), ex.getFieldErrors()));
     }
 
+    @ExceptionHandler(IncorrectPasswordException.class)
+    public ResponseEntity<ApiError> handleIncorrectPassword(IncorrectPasswordException ex) {
+        return ResponseEntity.badRequest()
+                .body(ApiError.of(HttpStatus.BAD_REQUEST.value(), "Validation failed",
+                        Map.of("currentPassword", ex.getMessage())));
+    }
+
+    @ExceptionHandler(InvalidEmailTokenException.class)
+    public ResponseEntity<ApiError> handleInvalidEmailToken(InvalidEmailTokenException ex) {
+        return ResponseEntity.badRequest()
+                .body(ApiError.of(HttpStatus.BAD_REQUEST.value(), ex.getMessage()));
+    }
+
+    @ExceptionHandler(AccountDeletionException.class)
+    public ResponseEntity<ApiError> handleAccountDeletion(AccountDeletionException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(ApiError.of(HttpStatus.BAD_GATEWAY.value(), ex.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidResetTokenException.class)
+    public ResponseEntity<ApiError> handleInvalidResetToken(InvalidResetTokenException ex) {
+        return ResponseEntity.badRequest()
+                .body(ApiError.of(HttpStatus.BAD_REQUEST.value(), ex.getMessage()));
+    }
+
     @ExceptionHandler(InvalidMonitorException.class)
     public ResponseEntity<ApiError> handleInvalidMonitor(InvalidMonitorException ex) {
         return ResponseEntity.badRequest()
