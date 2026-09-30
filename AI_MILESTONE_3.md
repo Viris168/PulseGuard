@@ -278,6 +278,29 @@ Each step ends with something you can run or test.
   results below the threshold are dropped; at most 4 results.
 - **Target:** hit@4 ≥ 90% on the golden set before moving on. Tune chunking and the threshold here.
 
+> **Step 4 result (done, 1 Oct 2026).** `HelpDocsSearch`: meaning (top 8 by cosine among rows of
+> the current model, cut at `min-similarity`) plus exact words (top 8, the question's words OR-ed)
+> merged by reciprocal rank fusion, best 4. Golden set: 32 answerable questions phrased like
+> customers ask, 6 the docs don't cover; `HelpDocsSearchEvalTest` runs it with real Gemini on
+> demand (`-Deval=true`).
+> - **The first run found a real bug:** hit@4 84%, but every hit came from the word search.
+>   Asking Spring AI 2.0.1 for query embeddings with only `taskType` set quietly used
+>   `gemini-embedding-001`, so questions and sections were in different vector spaces (similarity
+>   ~0.1 for everything). Measured, not guessed: the same question embedded with every option set
+>   scored 0.81 against its section, the merged request 0.06. Every embedding request now sets
+>   model and dimensions explicitly and checks the model the provider reports (`HelpEmbeddings`).
+>   Same trap as Milestone 2's chat options.
+> - **After the fix: hit@4 31/32 (97%), hit@1 25/32 (78%), MRR 0.86** with
+>   `gemini-embedding-2`, cut-off 0.60. The one miss ("Why do I only get alerted after a few
+>   minutes?") returned alert-delivery sections instead of the three-failures rule.
+> - **A cut-off can't tell "not covered" on its own:** off-topic questions scored 0.61–0.73
+>   ("How do I set up SMS alerts?" 0.73 against Slack), correct ones 0.73–0.84; only 1 of 6
+>   came back empty. So the model must judge whether the sections actually answer the question
+>   (Step 5's prompt rule), and the search returns candidates, not verdicts.
+> - `gemini-embedding-2` ignores the task type (a question embedded as a document scored
+>   identically). Rapid eval reruns hit Gemini's free-tier per-minute limit (429); a pause of a
+>   minute between runs is enough.
+
 ### Step 5: The tool, the prompt and sources (1 day)
 - `search_help_docs` in the tool list only when an `EmbeddingModel` exists; prompt rules;
   sources saved with the tool call and sent with `event: tool` and on reopened answers.

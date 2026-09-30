@@ -3,6 +3,7 @@ package com.viris.PulseGuard.ai.help;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.ai.google.genai.text.GoogleGenAiTextEmbeddingOptions.TaskType;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
@@ -117,10 +118,8 @@ public class HelpDocsIndexer implements ApplicationRunner {
 
             for (int from = 0; from < changed.size(); from += BATCH) {
                 List<HelpArticles.Chunk> batch = changed.subList(from, Math.min(from + BATCH, changed.size()));
-                List<float[]> vectors = model.embed(batch.stream().map(HelpArticles.Chunk::embeddingText).toList());
-                if (vectors.size() != batch.size()) {
-                    throw new IllegalStateException("Got " + vectors.size() + " embeddings for " + batch.size() + " texts");
-                }
+                List<float[]> vectors = HelpEmbeddings.embed(model, modelName,
+                        batch.stream().map(HelpArticles.Chunk::embeddingText).toList(), TaskType.RETRIEVAL_DOCUMENT);
                 for (int i = 0; i < batch.size(); i++) {
                     upsert(batch.get(i), hashes.get(from + i), vectors.get(i));
                 }

@@ -220,6 +220,13 @@ pulseguard:
     # Ask AI tools (AI_MILESTONE_2.md): lookups per question, and the longest one may take.
     max-tool-calls: ${PULSEGUARD_AI_MAX_TOOL_CALLS:5}
     tool-timeout: ${PULSEGUARD_AI_TOOL_TIMEOUT:10s}
+    # Ask AI's help-docs search (AI_MILESTONE_3.md): tuned with the golden set, see HelpDocsProperties.
+    help:
+      vector-candidates: 8
+      text-candidates: 8
+      max-results: 4
+      min-similarity: 0.60
+      rrf-k: 60
   stripe:
     # Test-mode keys locally (sk_test_...). The webhook secret comes from `stripe listen` in dev
     # and from the dashboard's endpoint settings in production.
