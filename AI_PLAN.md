@@ -209,7 +209,14 @@ returned as ISO UTC **plus** the user's local time label.
 **Done when:** answers match seeded data, "no data" instead of invention, cross-tenant and
 out-of-scope tests pass, every tool call logged.
 
-### Milestone 3+ (decide after shipping Ask AI)
+### Milestone 3: Help-docs answers (RAG) 📋 Planned
+
+Decided after Milestone 2: 📋 planned in detail in `AI_MILESTONE_3.md`. Ask AI answers "how do I…"
+questions from PulseGuard's own help docs (written as part of it, also shown on a `/docs` page),
+through a `search_help_docs` tool with hybrid pgvector + full-text search and cited sources.
+8–10 days. Customer-uploaded documents and the widget stay out of it.
+
+### Milestone 4+ (decide after Milestone 3)
 
 Keep the source plan's Phase 3/4 design, with these changes if you go ahead:
 - Switch Postgres images to pgvector; add embedding model + `document_chunks` with HNSW index.
@@ -238,4 +245,5 @@ Keep the source plan's Phase 3/4 design, with these changes if you go ahead:
 | 1. Core chat | 1–1.5 weeks |
 | 2. PulseGuard assistant | 1–1.5 weeks |
 | **Ask AI shippable** | **~3–3.5 weeks** |
-| 3/4. Docs RAG, widget | +3–5 weeks, if approved |
+| 3. Help-docs RAG | 8–10 days (planned) |
+| 4. Widget, customer documents | +2–4 weeks, if approved |
