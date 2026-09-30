@@ -3,6 +3,7 @@ package com.viris.PulseGuard.ai.tools;
 import com.viris.PulseGuard.ai.PromptText;
 import com.viris.PulseGuard.ai.tools.ToolQueries.Day;
 import com.viris.PulseGuard.ai.tools.ToolQueries.Failure;
+import com.viris.PulseGuard.ai.tools.ToolQueries.Failures;
 import com.viris.PulseGuard.ai.tools.ToolQueries.Figures;
 import com.viris.PulseGuard.ai.tools.ToolQueries.IncidentRef;
 import com.viris.PulseGuard.ai.tools.ToolQueries.MonitorRef;
@@ -206,40 +207,74 @@ public class MonitorTools {
     }
 
     @Tool(name = "get_recent_failures", resultConverter = PlainTextResult.class, description = """
-            The most recent failed checks of one monitor, newest first: when, the HTTP status and \
-            the error. Use it to explain why a monitor failed.""")
+            Failed checks of one monitor, newest first: when, the HTTP status and the error, and how \
+            many failed in all. Give from and to for a period, such as yesterday; leave them empty \
+            for the latest failures. Use it to explain why a monitor failed.""")
     public String getRecentFailures(
             @ToolParam(description = "Monitor name, as listed in <data>") String monitor,
-            @ToolParam(description = "How many, 1 to 10; default 5", required = false) Integer limit,
+            @ToolParam(description = "How many to list, 1 to 10; default 5", required = false) Integer limit,
+            @ToolParam(description = "First day, yyyy-MM-dd, in the user's time zone; empty for the latest failures",
+                    required = false) String from,
+            @ToolParam(description = "Last day, yyyy-MM-dd, in the user's time zone; empty for up to today",
+                    required = false) String to,
             ToolContext context) {
         return answer(() -> {
             ToolScope scope = ToolScope.from(context);
             MonitorRef m = find(monitor, scope);
             int n = limit == null ? 5 : Math.clamp(limit, 1, MAX_FAILURES);
-            List<Failure> failures = queries.recentFailures(m.id(), earliest(scope), n);
-            if (failures.isEmpty()) {
-                return "No failed checks on " + name(m) + " in the history your plan keeps (" + scope.historyDays() + " days).";
+            boolean dated = !isBlank(from) || !isBlank(to);
+            if (dated && isBlank(from)) {
+                throw new ToolInputException("Give the first day (from) as well, yyyy-MM-dd.");
             }
+            Period p = dated ? period(from, isBlank(to) ? scope.today().toString() : to, scope) : null;
+            Failures f = dated
+                    ? queries.failures(m.id(), p.start(), p.end(), scope.now(), n)
+                    : queries.failures(m.id(), earliest(scope), scope.now(), scope.now(), n);
             List<String> lines = new ArrayList<>();
-            lines.add("Latest " + failures.size() + " failed check" + (failures.size() == 1 ? "" : "s") + " of "
-                    + name(m) + ", newest first (" + scope.zone().getId() + "):");
-            for (Failure f : failures) {
-                List<String> parts = new ArrayList<>();
-                if (f.statusCode() != null) {
-                    parts.add("HTTP " + f.statusCode());
-                }
-                if (f.errorType() != null || f.errorMessage() != null) {
-                    parts.add(PromptText.clip((f.errorType() == null ? "" : f.errorType() + ": ")
-                            + (f.errorMessage() == null ? "" : f.errorMessage()), 200));
-                }
-                if (f.responseTimeMs() != null) {
-                    parts.add(f.responseTimeMs() + " ms");
-                }
-                lines.add("- " + WHEN.format(f.checkedAt().atZone(scope.zone())) + ": "
-                        + (parts.isEmpty() ? "failed" : String.join(", ", parts)));
+            if (f.latest().isEmpty()) {
+                lines.add(dated
+                        ? "No failed checks on " + name(m) + ", " + p.label() + "."
+                        : "No failed checks on " + name(m) + " in the history your plan keeps (" + scope.historyDays() + " days).");
+            } else if (dated) {
+                lines.add(count(f.total()) + " failed check" + (f.total() == 1 ? "" : "s") + " on " + name(m) + ", "
+                        + p.label() + " (" + scope.zone().getId() + ")"
+                        + (f.total() > f.latest().size() ? "; the latest " + f.latest().size() + ", newest first:" : ", newest first:"));
+            } else {
+                lines.add("Latest " + f.latest().size() + " failed check" + (f.latest().size() == 1 ? "" : "s") + " of "
+                        + name(m) + ", newest first (" + scope.zone().getId() + "), of " + count(f.total())
+                        + " in the history your plan keeps:");
+            }
+            for (Failure c : f.latest()) {
+                lines.add("- " + failureLine(c, scope));
+            }
+            if (dated) {
+                lines.addAll(p.notes());
+            }
+            if (f.pastRawChecks()) {
+                lines.add("Note: single checks are kept for " + f.rawCheckDays() + " days, so older failures can't be "
+                        + "listed; get_uptime still has daily counts for them.");
             }
             return String.join("\n", lines);
         });
+    }
+
+    private static String failureLine(Failure f, ToolScope scope) {
+        List<String> parts = new ArrayList<>();
+        if (f.statusCode() != null) {
+            parts.add("HTTP " + f.statusCode());
+        }
+        if (f.errorType() != null || f.errorMessage() != null) {
+            parts.add(PromptText.clip((f.errorType() == null ? "" : f.errorType() + ": ")
+                    + (f.errorMessage() == null ? "" : f.errorMessage()), 200));
+        }
+        if (f.responseTimeMs() != null) {
+            parts.add(f.responseTimeMs() + " ms");
+        }
+        return WHEN.format(f.checkedAt().atZone(scope.zone())) + ": " + (parts.isEmpty() ? "failed" : String.join(", ", parts));
+    }
+
+    private static boolean isBlank(String text) {
+        return text == null || text.isBlank();
     }
 
     // ─── monitors, dates, formatting ─────────────────────────────────────────

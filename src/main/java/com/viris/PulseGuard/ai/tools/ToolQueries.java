@@ -134,12 +134,25 @@ public class ToolQueries {
                           Integer responseTimeMs) {
     }
 
+    /**
+     * Failed checks in [start, end): how many, and the newest {@code limit}. Single checks are only
+     * kept for pulseguard.housekeeping.raw-check-days, so {@code pastRawChecks} says the window
+     * reaches further back than that and older failures can't be listed.
+     */
+    public record Failures(long total, List<Failure> latest, boolean pastRawChecks, int rawCheckDays) {
+    }
+
     @Transactional(readOnly = true)
-    public List<Failure> recentFailures(Long monitorId, Instant since, int limit) {
-        return checks.findByMonitorIdAndResultAndCheckedAtGreaterThanEqualOrderByCheckedAtDesc(
-                        monitorId, CheckResult.DOWN, since, PageRequest.of(0, limit)).stream()
+    public Failures failures(Long monitorId, Instant start, Instant end, Instant now, int limit) {
+        List<Failure> latest = checks
+                .findByMonitorIdAndResultAndCheckedAtGreaterThanEqualAndCheckedAtLessThanOrderByCheckedAtDesc(
+                        monitorId, CheckResult.DOWN, start, end, PageRequest.of(0, limit)).stream()
                 .map(ToolQueries::failure)
                 .toList();
+        long total = checks.countByMonitorIdAndResultAndCheckedAtGreaterThanEqualAndCheckedAtLessThan(
+                monitorId, CheckResult.DOWN, start, end);
+        int rawDays = housekeeping.rawCheckDays();
+        return new Failures(total, latest, start.isBefore(now.minus(Duration.ofDays(rawDays))), rawDays);
     }
 
     private static Failure failure(Check c) {

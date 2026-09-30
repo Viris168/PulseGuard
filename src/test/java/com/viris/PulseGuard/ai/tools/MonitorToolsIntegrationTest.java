@@ -184,13 +184,71 @@ class MonitorToolsIntegrationTest {
 
     @Test
     void recentFailuresNewestFirstAndLimited() {
-        String result = tools.getRecentFailures("Health", 2, alice(7));
+        String result = tools.getRecentFailures("Health", 2, null, null, alice(7));
 
-        assertThat(result).contains("Latest 2 failed checks of Health");
+        assertThat(result).contains("Latest 2 failed checks of Health").contains("of 4 in the history your plan keeps");
         String[] lines = result.split("\n");
         assertThat(lines).hasSize(3);
         assertThat(lines[1]).contains("14:38").contains("HTTP 503").contains("STATUS_MISMATCH: Expected 200 but got 503");
         assertThat(lines[2]).contains("14:37");
+    }
+
+    @Test
+    void failuresOnOneDayLeaveOutOtherDays() {
+        String result = tools.getRecentFailures("Health", null, yesterday.toString(), yesterday.toString(), alice(7));
+
+        String[] lines = result.split("\n");
+        assertThat(lines[0]).startsWith("3 failed checks on Health, ").endsWith(", newest first:");
+        assertThat(lines).hasSize(4);
+        assertThat(result).contains("14:38").contains("14:36").doesNotContain("HTTP 500");
+    }
+
+    @Test
+    void failuresOverSeveralDaysGiveTheTotalAndTheLatestFew() {
+        String result = tools.getRecentFailures("Health", 2, twoDaysAgo.toString(), yesterday.toString(), alice(7));
+
+        assertThat(result.split("\n")[0]).startsWith("4 failed checks on Health, ").endsWith("; the latest 2, newest first:");
+        assertThat(result.split("\n")).hasSize(3);
+    }
+
+    @Test
+    void failuresFromADayWithoutAnEndRunUpToToday() {
+        String result = tools.getRecentFailures("Health", 10, twoDaysAgo.toString(), null, alice(7));
+
+        assertThat(result).startsWith("4 failed checks on Health, ").contains("HTTP 500").contains("HTTP 503");
+    }
+
+    @Test
+    void failuresOnAQuietDaySayThereWereNone() {
+        String result = tools.getRecentFailures("Health", null, today.toString(), today.toString(), alice(7));
+
+        assertThat(result).startsWith("No failed checks on Health, ");
+    }
+
+    @Test
+    void failuresNeedTheFirstDayWhenGivenALastDay() {
+        String result = tools.getRecentFailures("Health", null, null, yesterday.toString(), alice(7));
+
+        assertThat(result).isEqualTo("Give the first day (from) as well, yyyy-MM-dd.");
+    }
+
+    @Test
+    void failuresOlderThanThePlanKeepsAreRefused() {
+        LocalDate old = today.minusDays(30);
+
+        String result = tools.getRecentFailures("Health", null, old.toString(), old.toString(), alice(7));
+
+        assertThat(result).startsWith("That range is older than the history this plan keeps (7 days");
+    }
+
+    @Test
+    void failuresPastTheRawCheckHistorySayOlderOnesCantBeListed() {
+        LocalDate longAgo = today.minusDays(200);
+
+        String result = tools.getRecentFailures("Health", null, longAgo.toString(), yesterday.toString(), alice(365));
+
+        assertThat(result).startsWith("4 failed checks on Health, ")
+                .contains("Note: single checks are kept for 62 days, so older failures can't be listed");
     }
 
     @Test

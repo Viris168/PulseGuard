@@ -17,9 +17,13 @@ public interface CheckRepository extends JpaRepository<Check, Long> {
 
     List<Check> findByMonitorIdOrderByCheckedAtDesc(Long monitorId, Pageable pageable);
 
-    /** Ask AI's failed-check lookup: one result (DOWN) since a time, newest first. */
-    List<Check> findByMonitorIdAndResultAndCheckedAtGreaterThanEqualOrderByCheckedAtDesc(
-            Long monitorId, CheckResult result, Instant since, Pageable pageable);
+    /** Ask AI's failed-check lookup: one result (DOWN) in [start, end), newest first. */
+    List<Check> findByMonitorIdAndResultAndCheckedAtGreaterThanEqualAndCheckedAtLessThanOrderByCheckedAtDesc(
+            Long monitorId, CheckResult result, Instant start, Instant end, Pageable pageable);
+
+    /** How many checks with that result in [start, end), for "38 failed, the latest 10 shown". */
+    long countByMonitorIdAndResultAndCheckedAtGreaterThanEqualAndCheckedAtLessThan(
+            Long monitorId, CheckResult result, Instant start, Instant end);
 
     List<Check> findByMonitorIdAndCheckedAtBetween(Long monitorId, Instant from, Instant to);
 
