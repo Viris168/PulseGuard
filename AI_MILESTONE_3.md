@@ -297,6 +297,11 @@ Each step ends with something you can run or test.
 >   ("How do I set up SMS alerts?" 0.73 against Slack), correct ones 0.73–0.84; only 1 of 6
 >   came back empty. So the model must judge whether the sections actually answer the question
 >   (Step 5's prompt rule), and the search returns candidates, not verdicts.
+> - **Variants (paced runs):** cut-off 0.68 gave the same scores as 0.60 (hit@4 97%, hit@1
+>   78%, still 1 of 6 uncovered questions empty); 0.68 with 4 word matches instead of 8 was
+>   slightly worse (hit@1 75%, MRR 0.84). The words side is what keeps returning something for
+>   uncovered questions, and that's fine: the model judges (Step 5 confirmed it). Settings stay
+>   at 0.60 and 8/8.
 > - `gemini-embedding-2` ignores the task type (a question embedded as a document scored
 >   identically). Rapid eval reruns hit Gemini's free-tier per-minute limit (429); a pause of a
 >   minute between runs is enough.
@@ -332,6 +337,60 @@ Each step ends with something you can run or test.
 - `/docs` and `/docs/:article`: an article list and an article page; Support → Documentation
   links there (the "Soon" tag goes). Sources under answers link to `/docs/…#anchor`.
 - **Test (vitest):** the list and an article render; a source link goes to the right anchor.
+
+> **Step 6 plan (written 1 Oct, to build 2 Oct).** Three parts, in this order.
+>
+> **Decisions to confirm first**
+> 1. **Public docs?** Recommendation: **yes**, like `/status/:slug`: readable signed out (good for
+>    people deciding whether to sign up, and for search engines), with the app's sidebar when
+>    signed in. Needs `GET /api/help` and `GET /api/help/{slug}` permitted in `SecurityConfig`
+>    and listed in CLAUDE.md's public endpoints. The alternative (signed-in only) needs neither.
+> 2. **Rendering Markdown.** Decision 9 said "no new dependency", but the articles contain two
+>    tables (plans, Ask AI questions) and code blocks (crontab, curl), which the panel's
+>    `RichText` can't draw. Recommendation: **add `react-markdown` + `remark-gfm`** (the usual
+>    pair; safe by default, raw HTML isn't rendered), used for the docs page *and* for answers,
+>    replacing `RichText`. Alternative: extend `RichText` by hand for tables and code blocks
+>    (no dependency, more code to own and test).
+>
+> **Part A: the Documentation page**
+> - Backend: `HelpController` (in `ai/help/`, reusing `HelpArticles`, no database): `GET /api/help`
+>   → `[{slug, title, summary}]`, `GET /api/help/{slug}` → `{slug, title, summary, markdown}`
+>   (the body after the front matter), 404 for an unknown slug. Tests: list, one article, 404,
+>   reachable signed out (if public).
+> - Frontend: `frontend/src/api/help.ts`; `pages/DocsPage.tsx` (the list, grouped: Getting
+>   started, Monitors, Alerts, Account and billing, Ask AI) and `pages/DocArticlePage.tsx` (the
+>   article, headings with ids equal to the backend's anchors so `/docs/slack-alerts#setting-it-up`
+>   scrolls to the section; a "Was this helpful? Ask AI" link at the bottom).
+> - Anchors: generate heading ids in the frontend with the same rule as `HelpArticles.anchor`
+>   (lowercase, apostrophes dropped, other runs of non-alphanumerics → "-"); a test checks both
+>   produce the same ids for every real heading.
+> - Routes `docs` and `docs/:slug` in `App.tsx`; Support menu: "Documentation" links to `/docs`
+>   and loses its "Soon" tag ("Contact support" keeps it).
+>
+> **Part B: sources under docs answers**
+> - `ai.ts`: `event: tool` data gains `sources: {title, url}[]`; `onTool(label, sources)`;
+>   `Message.sources`.
+> - `AskAiPanel`: collect sources from tool events while streaming and from `sources` when a chat
+>   is reopened; below the answer, "📖 Sources" with numbered links **[1] Slack alerts › Setting
+>   it up**, numbered in the order the search returned them, which is the order the model cites.
+>   Clicking opens `/docs/…#anchor` (same tab, the panel stays open).
+> - In the answer text, turn `[1]`, `[1, 3]`, `[2][3]` into small superscript links to the same
+>   sources; a number with no matching source stays plain text.
+>
+> **Part C: rendering answers**
+> - Answers rendered with the same Markdown component as the docs page: numbered lists,
+>   `code`, tables and code blocks look right; links in answers are not made clickable (only
+>   the source links are), since answers must never carry links the model invented.
+> - Keep the prompt's "plain text" rule; this only makes the occasional list or backtick tidy.
+>
+> **Tests (vitest)**: docs list renders grouped; an article renders its table and code block and
+> its section ids; `/docs/x#y` lands on the section; Support → Documentation links there; a
+> streamed docs answer shows numbered sources from `event: tool`; a reopened answer shows its
+> saved sources; `[1, 3]` becomes two links, `[9]` stays text; a numbered list and backticks in an
+> answer render as a list and code; a link written by the model is not clickable.
+>
+> **Then, in the browser:** open `/docs` signed out and in, follow a source link from a real
+> answer, check dark mode and a phone-width screen. About one day.
 
 ### Step 7: Try it for real, docs, learning folder (1 day)
 - Run the eval with real Gemini; ask ~10 questions by hand, including ones the docs don't
