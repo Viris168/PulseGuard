@@ -16,9 +16,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * text), different texts get unrelated ones, and every text it's asked to embed is recorded.
  * So a question identical to a section's text is a perfect match by meaning, and nothing else is.
  */
-class FakeEmbeddingModel implements EmbeddingModel {
+public class FakeEmbeddingModel implements EmbeddingModel {
 
-    final List<String> embedded = new CopyOnWriteArrayList<>();
+    public final List<String> embedded = new CopyOnWriteArrayList<>();
 
     @Override
     public EmbeddingResponse call(EmbeddingRequest request) {

@@ -33,7 +33,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <pre>GOOGLE_AI_API_KEY=… ./mvnw test -Dtest=HelpDocsSearchEvalTest -Deval=true</pre>
  *
- * Compare settings by overriding them, e.g. {@code -Dpulseguard.ai.help.min-similarity=0.55},
+ * The free tier allows about 100 embedding requests a minute and indexing already makes 85 (one
+ * per section), so the questions wait a minute and then go about one a second: a run takes ~2
+ * minutes. Change with {@code -Deval.pause-ms} and {@code -Deval.pace-ms} on a paid key.
+ *
+ * <p>Compare settings by overriding them, e.g. {@code -Dpulseguard.ai.help.min-similarity=0.55},
  * {@code -Dpulseguard.ai.help.text-candidates=0} (meaning only) or
  * {@code -Dspring.ai.google.genai.embedding.text.options.model=gemini-embedding-001}.
  */
@@ -76,7 +80,9 @@ class HelpDocsSearchEvalTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void theGoldenSet() throws IOException {
+    void theGoldenSet() throws IOException, InterruptedException {
+        long pace = Long.getLong("eval.pace-ms", 1100);
+        Thread.sleep(Long.getLong("eval.pause-ms", 61_000)); // indexing just spent this minute's quota
         Map<String, Object> set;
         try (InputStream in = getClass().getResourceAsStream("/help-eval.yaml")) {
             set = new Yaml().load(in);
@@ -91,6 +97,7 @@ class HelpDocsSearchEvalTest {
         for (Map<String, Object> item : answerable) {
             String q = (String) item.get("q");
             List<String> expect = (List<String>) item.get("expect");
+            Thread.sleep(pace);
             List<HelpDocsSearch.Hit> hits = search.search(q);
             int rank = 0;
             for (int i = 0; i < hits.size(); i++) {
@@ -108,6 +115,7 @@ class HelpDocsSearchEvalTest {
         int empty = 0;
         report.append("--- unanswerable (should come back empty)\n");
         for (String q : unanswerable) {
+            Thread.sleep(pace);
             List<HelpDocsSearch.Hit> hits = search.search(q);
             empty += hits.isEmpty() ? 1 : 0;
             report.append(hits.isEmpty() ? "  empty " : "  FOUND ").append(q)

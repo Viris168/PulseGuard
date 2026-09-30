@@ -242,6 +242,17 @@ class ChatToolsApiIntegrationTest {
         assertThat(PROMPTS.getFirst().getInstructions().getLast().getText()).contains("today is " + LocalDate.now(ZONE));
     }
 
+    @Test
+    void withoutAnEmbeddingModelTheHelpDocsToolIsNotOffered() throws Exception {
+        ASKS_FOR.set(new String[]{"get_uptime", uptimeArgs("Health")});
+
+        send(newChat(), "What was Health's uptime yesterday?");
+
+        List<String> offered = ((org.springframework.ai.model.tool.ToolCallingChatOptions) PROMPTS.getFirst().getOptions())
+                .getToolCallbacks().stream().map(c -> c.getToolDefinition().name()).toList();
+        assertThat(offered).contains("get_uptime").doesNotContain("search_help_docs");
+    }
+
     // ─── helpers ─────────────────────────────────────────────────────────────
 
     static String toolResult(Prompt prompt) {

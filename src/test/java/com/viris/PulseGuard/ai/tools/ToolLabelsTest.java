@@ -32,6 +32,12 @@ class ToolLabelsTest {
     }
 
     @Test
+    void aHelpDocsSearchQuotesWhatItSearchedFor() {
+        assertThat(label("search_help_docs", "{\"query\":\"slack alerts setup\"}"))
+                .isEqualTo("Searched the help docs for \"slack alerts setup\"");
+    }
+
+    @Test
     void aFailedLookupSaysItCouldNotCheck() {
         ToolCallRecord failed = new ToolCallRecord("get_recent_failures", "{\"monitor\":\"Health\"}",
                 GuardedToolCallback.FAILED, false, 3);

@@ -101,7 +101,7 @@ public class ChatTurn {
             return;
         }
         try {
-            events.tool(new ChatStreamEvents.Tool(ToolLabels.label(record)));
+            events.tool(new ChatStreamEvents.Tool(ToolLabels.label(record), record.sources()));
         } catch (IOException | IllegalStateException gone) {
             stop(); // the browser is gone: same as pressing Stop
         }

@@ -9,6 +9,7 @@ import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.ai.tool.metadata.ToolMetadata;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -39,6 +40,8 @@ final class GuardedToolCallback implements ToolCallback {
     private static final Logger log = LoggerFactory.getLogger(GuardedToolCallback.class);
 
     static final int MAX_RESULT_CHARS = 2000;
+    /** search_help_docs returns up to four doc sections of up to ~900 characters (AI_MILESTONE_3.md). */
+    static final int MAX_HELP_RESULT_CHARS = 4000;
     static final int PREVIEW_CHARS = 1000;
     static final int MAX_ARGUMENT_CHARS = 500;
 
@@ -76,15 +79,18 @@ final class GuardedToolCallback implements ToolCallback {
     public String call(String arguments, ToolContext context) {
         String name = getToolDefinition().name();
         if (!run.tryStart()) {
-            finish(name, arguments, LIMIT_REACHED, false, 0);
+            finish(name, arguments, LIMIT_REACHED, false, 0, List.of());
             return forModel(LIMIT_REACHED);
         }
         long started = System.nanoTime();
         Future<String> call = run.executor().submit(() -> tool.call(arguments, context));
         String result;
+        List<ToolCallRecord.Source> sources = List.of();
         boolean ok = false;
         try {
-            result = bounded(call.get(run.timeout().toMillis(), TimeUnit.MILLISECONDS));
+            String full = call.get(run.timeout().toMillis(), TimeUnit.MILLISECONDS);
+            sources = ToolCallRecord.sourcesIn(full);
+            result = bounded(full, maxChars(name));
             ok = true;
         } catch (TimeoutException e) {
             call.cancel(true);
@@ -98,20 +104,26 @@ final class GuardedToolCallback implements ToolCallback {
             result = FAILED;
         }
         long ms = (System.nanoTime() - started) / 1_000_000;
-        finish(name, arguments, result, ok, ms);
+        finish(name, arguments, result, ok, ms, sources);
         return forModel(result);
     }
 
-    private void finish(String name, String arguments, String result, boolean ok, long ms) {
+    private void finish(String name, String arguments, String result, boolean ok, long ms,
+                        List<ToolCallRecord.Source> sources) {
         log.info("Tool {} ok={} in {} ms", name, ok, ms);
-        run.record(new ToolCallRecord(name, cut(arguments, MAX_ARGUMENT_CHARS), cut(result, PREVIEW_CHARS), ok, ms));
+        run.record(new ToolCallRecord(name, cut(arguments, MAX_ARGUMENT_CHARS), cut(result, PREVIEW_CHARS), ok, ms,
+                sources));
     }
 
-    private static String bounded(String result) {
+    static int maxChars(String tool) {
+        return "search_help_docs".equals(tool) ? MAX_HELP_RESULT_CHARS : MAX_RESULT_CHARS;
+    }
+
+    private static String bounded(String result, int max) {
         String text = result == null ? "" : result;
-        return text.length() <= MAX_RESULT_CHARS
+        return text.length() <= max
                 ? text
-                : text.substring(0, MAX_RESULT_CHARS) + "\n…(result cut at " + MAX_RESULT_CHARS + " characters)";
+                : text.substring(0, max) + "\n…(result cut at " + max + " characters)";
     }
 
     /** What the model is sent: the fenced text as the one field of a JSON object. */

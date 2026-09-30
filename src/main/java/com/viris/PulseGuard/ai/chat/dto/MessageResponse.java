@@ -4,6 +4,8 @@ import com.viris.PulseGuard.ai.chat.AiMessage;
 import com.viris.PulseGuard.enumeration.MessageRole;
 import com.viris.PulseGuard.enumeration.MessageStatus;
 
+import com.viris.PulseGuard.ai.tools.ToolCallRecord;
+
 import java.time.Instant;
 import java.util.List;
 
@@ -14,10 +16,12 @@ import java.util.List;
  * for cost tracking.
  */
 public record MessageResponse(Long id, MessageRole role, String content, MessageStatus status,
-                              Instant createdAt, Short rating, List<String> lookups) {
+                              Instant createdAt, Short rating, List<String> lookups,
+                              List<ToolCallRecord.Source> sources) {
 
-    public static MessageResponse from(AiMessage m, Short rating, List<String> lookups) {
+    public static MessageResponse from(AiMessage m, Short rating, List<String> lookups,
+                                       List<ToolCallRecord.Source> sources) {
         return new MessageResponse(m.getId(), m.getRole(), m.getContent(), m.getStatus(), m.getCreatedAt(), rating,
-                lookups);
+                lookups, sources);
     }
 }

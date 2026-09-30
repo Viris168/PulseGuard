@@ -173,7 +173,7 @@ class ChatTurnTest {
         new ChatTurn(model, store, quota, USER, CHAT, QUESTION, run).start(browser);
 
         assertThat(browser.events).containsExactly(
-                new ChatStreamEvents.Tool("Checked uptime for Health, 2026-09-01 to 2026-09-03"),
+                new ChatStreamEvents.Tool("Checked uptime for Health, 2026-09-01 to 2026-09-03", List.of()),
                 new ChatStreamEvents.Delta("Health was up 99.82%."),
                 new ChatStreamEvents.Done(QUESTION, 101L, MessageStatus.COMPLETE, QUOTA));
         verify(store).saveAnswer(eq(CHAT), eq("Health was up 99.82%."), eq(MessageStatus.COMPLETE), eq(USAGE),

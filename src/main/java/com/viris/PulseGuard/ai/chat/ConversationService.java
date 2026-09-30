@@ -5,6 +5,7 @@ import com.viris.PulseGuard.ai.chat.dto.MessageResponse;
 import com.viris.PulseGuard.ai.AiAccess;
 import com.viris.PulseGuard.ai.AiAccessRepository;
 import com.viris.PulseGuard.ai.chat.dto.CreateConversationRequest;
+import com.viris.PulseGuard.ai.tools.ToolCallRecord;
 import com.viris.PulseGuard.ai.tools.ToolLabels;
 import com.viris.PulseGuard.auth.UserRepository;
 import com.viris.PulseGuard.common.exception.IncidentNotFoundException;
@@ -106,11 +107,17 @@ public class ConversationService {
                 .map(AiMessage::getId).toList();
         Map<Long, Short> ratings = feedback.findAllById(answerIds).stream()
                 .collect(Collectors.toMap(AiMessageFeedback::getMessageId, AiMessageFeedback::getRating));
-        Map<Long, List<String>> lookups = toolCalls.findAllByMessageIdInOrderByIdAsc(answerIds).stream()
+        Map<Long, List<ToolCallRecord>> calls = toolCalls.findAllByMessageIdInOrderByIdAsc(answerIds).stream()
                 .collect(Collectors.groupingBy(AiToolCall::getMessageId,
-                        Collectors.mapping(c -> ToolLabels.label(c.toRecord()), Collectors.toList())));
+                        Collectors.mapping(AiToolCall::toRecord, Collectors.toList())));
         return list.stream()
-                .map(m -> MessageResponse.from(m, ratings.get(m.getId()), lookups.getOrDefault(m.getId(), List.of())))
+                .map(m -> {
+                    List<ToolCallRecord> made = calls.getOrDefault(m.getId(), List.of());
+                    return MessageResponse.from(m, ratings.get(m.getId()),
+                            made.stream().map(ToolLabels::label).toList(),
+                            // Each section once, in the order the searches found them.
+                            made.stream().flatMap(c -> c.sources().stream()).distinct().toList());
+                })
                 .toList();
     }
 

@@ -1,7 +1,10 @@
 package com.viris.PulseGuard.ai.chat.dto;
 
 import com.viris.PulseGuard.ai.dto.AiQuotaResponse;
+import com.viris.PulseGuard.ai.tools.ToolCallRecord;
 import com.viris.PulseGuard.enumeration.MessageStatus;
+
+import java.util.List;
 
 /**
  * The data of each Server-Sent Event on the message stream; mirrors {@code streamMessage} in
@@ -12,8 +15,11 @@ public final class ChatStreamEvents {
     private ChatStreamEvents() {
     }
 
-    /** {@code event: tool}: something the model looked up, e.g. "Checked uptime for Health, …". */
-    public record Tool(String label) {
+    /**
+     * {@code event: tool}: something the model looked up, e.g. "Checked uptime for Health, …", and
+     * for a help-docs search the sections it found (empty otherwise).
+     */
+    public record Tool(String label, List<ToolCallRecord.Source> sources) {
     }
 
     /** {@code event: delta}: the next piece of the answer. */

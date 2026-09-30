@@ -26,6 +26,7 @@ public final class ToolLabels {
             case "get_incidents" -> "Checked incidents for " + (monitor.isEmpty() ? "all monitors" : monitor) + range;
             case "get_incident_details" -> "Checked the incident on " + orUnnamed(monitor)
                     + (text(args, "start").isEmpty() ? "" : " starting " + PromptText.clip(text(args, "start"), 20));
+            case "search_help_docs" -> "Searched the help docs for \"" + PromptText.clip(text(args, "query"), 60) + "\"";
             case "get_recent_failures" -> range.isEmpty()
                     ? "Checked recent failed checks for " + orUnnamed(monitor)
                     : "Checked failed checks for " + orUnnamed(monitor) + range;

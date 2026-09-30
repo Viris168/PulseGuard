@@ -308,6 +308,26 @@ Each step ends with something you can run or test.
   2 and sources on the answer; with no embedding model the tool isn't offered; a doc chunk
   containing "ignore your instructions" stays fenced.
 
+> **Step 5 result (done, 1 Oct 2026).**
+> - `HelpDocsTools.search_help_docs` lists up to four sections as `[n] Title › Heading (/docs/…)`
+>   plus their text; `ToolCallRecord.sourcesIn` reads those lines back (from the whole result,
+>   before any cut) as the sources, saved in `ai_tool_calls.sources` (V25), sent on
+>   `event: tool` and returned with each reopened answer (`MessageResponse.sources`).
+> - The docs tool may return 4,000 characters (four sections of up to ~900); every other tool
+>   keeps the 2,000 cap. It's offered only while an embedding model is configured.
+> - New prompt rule: for how PulseGuard works, search the docs, answer only from sections that
+>   actually answer, cite [n], and say the docs don't cover it otherwise (Step 4: search returns
+>   candidates, not verdicts).
+> - **Real Gemini, three questions, each 2 rounds:** "How do I get alerts in Slack?" searched
+>   "slack alerts setup" and answered the three steps from the article, citing [1] and [2].
+>   "How do I set up SMS alerts?" got four alert sections back, and the model still said "The
+>   help docs don't cover setting up SMS alerts", mentioned email and Slack, and suggested
+>   support: the judging works. "Health got 401 errors… how do I fix it?" answered from the
+>   status-codes and headers sections.
+> - For Step 6: answers cite as "[1]" and "[1, 3]", and sometimes use numbered lists and
+>   `backticks` despite the "plain text" rule; the panel should number its source links to
+>   match, and render those gracefully.
+
 ### Step 6: Frontend (1 day)
 - `/docs` and `/docs/:article`: an article list and an article page; Support → Documentation
   links there (the "Soon" tag goes). Sources under answers link to `/docs/…#anchor`.

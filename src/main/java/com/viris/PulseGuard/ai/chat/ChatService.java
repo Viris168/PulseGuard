@@ -7,6 +7,8 @@ import com.viris.PulseGuard.ai.AiQuotaPolicy;
 import com.viris.PulseGuard.ai.AskAiSnapshot;
 import com.viris.PulseGuard.ai.AskAiSnapshotLoader;
 import com.viris.PulseGuard.ai.ModelCaller;
+import com.viris.PulseGuard.ai.help.HelpDocsSearch;
+import com.viris.PulseGuard.ai.help.HelpDocsTools;
 import com.viris.PulseGuard.ai.tools.MonitorTools;
 import com.viris.PulseGuard.ai.tools.ToolGuard;
 import com.viris.PulseGuard.ai.tools.ToolRun;
@@ -56,13 +58,17 @@ public class ChatService {
     private final ToolGuard toolGuard;
     private final ChatContextLoader contextLoader;
     /** The tools as the model sees them; stateless, so built once. Each message guards them anew. */
-    private final List<ToolCallback> tools;
+    private final List<ToolCallback> monitorTools;
+    /** search_help_docs (AI_MILESTONE_3.md): offered only while an embedding model is configured. */
+    private final List<ToolCallback> helpDocsTools;
+    private final HelpDocsSearch helpDocsSearch;
 
     public ChatService(AiConversationRepository conversations, AiMessageRepository messages,
                        AiAccessRepository accessRepository, AskAiSnapshotLoader snapshotLoader,
                        ChatMessageStore store, AiQuotaPolicy quota, ModelCaller modelCaller, AiProperties properties,
                        MonitorRepository monitors, UserRepository users, PlanLimits planLimits,
-                       ToolGuard toolGuard, MonitorTools monitorTools, ChatContextLoader contextLoader) {
+                       ToolGuard toolGuard, MonitorTools monitorTools, ChatContextLoader contextLoader,
+                       HelpDocsTools helpDocsTools, HelpDocsSearch helpDocsSearch) {
         this.conversations = conversations;
         this.messages = messages;
         this.accessRepository = accessRepository;
@@ -76,7 +82,9 @@ public class ChatService {
         this.planLimits = planLimits;
         this.toolGuard = toolGuard;
         this.contextLoader = contextLoader;
-        this.tools = List.of(ToolCallbacks.from(monitorTools));
+        this.monitorTools = List.of(ToolCallbacks.from(monitorTools));
+        this.helpDocsTools = List.of(ToolCallbacks.from(helpDocsTools));
+        this.helpDocsSearch = helpDocsSearch;
     }
 
     /**
@@ -105,13 +113,22 @@ public class ChatService {
             String page = contextLoader.describe(chat, userId, access, zone, Instant.now()).orElse(null);
             Prompt prompt = ChatPrompt.build(question, snapshot, earlier, page);
             ToolRun run = toolGuard.start();
-            return new ChatTurn(modelCaller.stream(prompt, "chat conversationId=" + conversationId, run.guard(tools),
+            return new ChatTurn(modelCaller.stream(prompt, "chat conversationId=" + conversationId, run.guard(tools()),
                     scope(userId, access, zone).asToolContext()),
                     store, quota, userId, conversationId, questionId, run);
         } catch (RuntimeException e) {
             quota.release(userId);
             throw e;
         }
+    }
+
+    private List<ToolCallback> tools() {
+        if (!helpDocsSearch.isAvailable()) {
+            return monitorTools;
+        }
+        List<ToolCallback> all = new java.util.ArrayList<>(monitorTools);
+        all.addAll(helpDocsTools);
+        return all;
     }
 
     /**
