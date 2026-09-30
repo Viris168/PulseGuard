@@ -97,7 +97,7 @@ instructions to follow.
 |---|---|---|
 | **Keep the snapshot?** | Yes, as the overview. Tools are for anything beyond it. | "Is anything down?" stays one request: fast, cheap, kind to rate limits. |
 | **How tools name a monitor** | By **name**, as the user says it (case-insensitive). Two with the same name → the tool lists them and asks which. | The model learns names from the snapshot; ids would have to be added to it and add nothing for the user. |
-| **Who controls the loop** | Our `GuardedToolCallback` wrapper is the control point, whichever part of Spring AI runs the loop (Step 1 finds out). | Every tool call passes through it, so the cap, the audit log and scoping hold either way. |
+| **Who controls the loop** | **Our own loop** in `ModelCaller` (settled by Step 1: in Spring AI 2.0.1 the model never runs tools itself). `GuardedToolCallback` still wraps every tool. | We decide the cap, the rounds and the timeouts; every call passes the wrapper for scoping and the audit log. |
 | **Tool-call cap** | 5 per message. The 6th returns "Tool limit reached; answer with what you have." | A confused model can't loop and run up cost or rate limits. |
 | **Result size** | Each result ≤ 2,000 characters, lists capped (e.g. 20 incidents) with "…and N more". | Results go back into the prompt; big ones cost tokens on every later round. |
 | **Date ranges** | ISO dates in the user's time zone; clamped to the plan's history, with a note when clamped. | "August" means August where the user lives; the model must know when data was cut. |
@@ -194,6 +194,23 @@ Each step ends with something you can run or test.
   `gemini-3.1-flash-lite`? How many requests does one tool question make?
 - **Output:** a short note in this file choosing the loop. Nothing committed but the note.
 
+> **Step 1 result (done, 30 Sep 2026).** A throwaway test against real Gemini
+> (`gemini-3.1-flash-lite`, one fake `getUptime` tool), then deleted:
+> - **The model does not run tools itself.** Both `stream()` and `call()` return the tool call
+>   (`getUptime {"monitor":"Health","from":"2026-09-01","to":"2026-09-03"}`, arguments exactly
+>   right) and stop; the tool ran 0 times. So **we run the loop**, which is what we wanted.
+> - **Our own streaming loop works:** stream → the chunk with `hasToolCalls()` →
+>   `ToolCallingManager.executeToolCalls(prompt, thatChunk)` → a new `Prompt` from
+>   `conversationHistory()` (USER, ASSISTANT, TOOL) → stream again. The final answer used the
+>   result ("99.82%, with 4,310 total checks and 8 failures") and streamed in 5 pieces.
+> - **Cost as predicted:** 1 tool call = 2 model requests.
+> - **`ToolContext` reaches the tool** (`userId=7` arrived), and the tool runs on the thread
+>   that runs the loop. So the scope is server-set, never model-set.
+> - **Gotcha:** per-request options *replace* the model's defaults instead of adding to them.
+>   Passing only the tools made the call fall back to Spring AI's built-in default
+>   `gemini-2.5-flash`, which Google has retired (404). Step 4 must build the request options
+>   from the configured defaults (`chatModel.getDefaultOptions()`) plus the tools, and test it.
+
 ### Step 2: `ToolScope` and `GuardedToolCallback` (1 day)
 - `ToolScope` record built by `ChatService` from the login, `AiAccess` and `PlanLimits`.
 - The wrapper: cap, 10 s per tool, catches exceptions into a safe message, records each call,
@@ -251,9 +268,9 @@ Each step ends with something you can run or test.
 
 ## Risks to watch
 
-- **Spring AI 2.0 tool loop.** Which part runs it changed in 2.0; Step 1 settles it before any
-  real work. If streaming with tools misbehaves on Gemini, fall back to: tools rounds without
-  streaming, then stream only the final answer.
+- **Spring AI 2.0 tool loop.** Settled by Step 1: we run it, and streaming with tools works on
+  Gemini. Still to watch: a model asking for several tools in one reply (run them all, then
+  continue), and the options gotcha above.
 - **Free-tier rate limits.** Each tool round is a request. If questions start failing with 429s
   from Google, lower the cap to 3 or enable billing.
 - **Wrong tool, wrong dates.** Models misread "last month" or pick the wrong monitor. The lookup
