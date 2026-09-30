@@ -252,14 +252,17 @@ Each step ends with something you can run or test.
 
 ## Done when
 
-- [ ] A follow-up question uses the earlier messages ("has that happened before?").
-- [ ] Answers appear word by word; Stop works and keeps the partial answer.
-- [ ] Conversations survive closing the panel and reloading; rename and delete work.
-- [ ] Every chat message counts toward the daily limit; failed ones are handed back.
-- [ ] Each answer's tokens are saved.
-- [ ] Another user's conversations and messages are always 404 (tests).
-- [ ] Old conversations are deleted by plan retention; account deletion removes all.
-- [ ] `./mvnw test` and `npm test` green.
+Ticked items are proven by automated tests with a fake model; Step 8 confirms them with a real one.
+
+- [x] A follow-up question uses the earlier messages ("has that happened before?").
+- [x] Answers appear word by word; Stop works and keeps the partial answer.
+- [x] Conversations survive closing the panel and reloading; rename and delete work.
+- [x] Every chat message counts toward the daily limit; failed ones are handed back.
+- [x] Each answer's tokens are saved.
+- [x] Another user's conversations and messages are always 404 (tests).
+- [x] Old conversations are deleted by plan retention; account deletion removes all.
+- [x] `./mvnw test` and `npm test` green.
+- [ ] Step 8: tried with Gemini locally, and streaming checked through Caddy after deploying.
 
 ## Risks to watch
 
