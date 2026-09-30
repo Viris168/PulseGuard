@@ -8,6 +8,7 @@ One folder per milestone, so you can study how the AI features were built, step 
 | [`milestone-0-incident-summary/`](milestone-0-incident-summary/) | The model writes a short summary on each incident page | ✅ Built |
 | [`milestone-0.5-ask-ai/`](milestone-0.5-ask-ai/) | The Ask AI panel answers one question from your real data | ✅ Built |
 | [`milestone-1-chat/`](milestone-1-chat/) | Ask AI becomes a chat: history, streaming, Stop | ✅ Built (production streaming check after deploy) |
+| [`milestone-2-tools/`](milestone-2-tools/) | Ask AI looks things up: any date range, incident details, "Ask AI about this" | 📋 Plan only |
 
 ## How to use it
 

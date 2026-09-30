@@ -164,6 +164,8 @@ tokens recorded, cross-user tests pass, `./mvnw test` green.
 
 ### Milestone 2: PulseGuard assistant (1–1.5 weeks)
 
+📋 Planned in detail in `AI_MILESTONE_2.md` (tools, page context, lookup lines; 5–7 days).
+
 **Tools** (`ai/tools/`, read-only, each takes `ToolContext` with `userId` + allowed monitor IDs):
 
 | Tool | Backed by |
