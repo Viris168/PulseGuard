@@ -106,12 +106,13 @@ handling with no chat UI.
 - `GET /api/incidents/{id}/summary`, scoped by `userId`. Replace `summarizeIncident` mock.
 - Tests: mocked `ChatModel`; fallback path; tenant scope.
 
-### Milestone 1: Core chat (1–1.5 weeks) 🟡 Built, trying it for real
+### Milestone 1: Core chat (1–1.5 weeks) ✅ Done
 
 Built as planned in `AI_MILESTONE_1.md` (Steps 1–7): saved conversations, answers streamed word
 by word with Stop, follow-ups with trimmed history, thumbs up/down, chat retention by plan. The
-one-shot `POST /api/ai/ask` is gone; the panel uses the chat. Left: Step 8, trying it with a real
-model locally and after deploying.
+one-shot `POST /api/ai/ask` is gone; the panel uses the chat. Merged in PR #13.
+Streaming with a real model was tried locally with Gemini during Milestone 2's Step 7; the check
+behind the production proxy (Caddy) waits for the next deploy.
 
 
 > **Superseded by `AI_MILESTONE_1.md`**, which plans it on top of what Ask AI (option B) already
@@ -162,9 +163,16 @@ Only what Phase 2 needs. No multi-assistant UI yet, but the `assistants` table e
 **Done when:** stream + stop work, history persists, quota enforced and shown, every request's
 tokens recorded, cross-user tests pass, `./mvnw test` green.
 
-### Milestone 2: PulseGuard assistant (1–1.5 weeks)
+### Milestone 2: PulseGuard assistant (1–1.5 weeks) ✅ Built, on `feature/ai-tools-guard`
 
-📋 Planned in detail in `AI_MILESTONE_2.md` (tools, page context, lookup lines; 5–7 days).
+Built as planned in `AI_MILESTONE_2.md` (Steps 1–7) and tried on real Gemini: five read-only
+tools (`get_uptime`, `get_response_times`, `get_incidents`, `get_incident_details`,
+`get_recent_failures`, the last with an optional date range), capped at 5 calls per question,
+saved to `ai_tool_calls` (V22) and shown as "Checked …" lines; "Ask AI" buttons on monitor and
+incident pages start a chat about that page (V23). One tool question = 2 model requests.
+Step 7 found that Gemini needs tool results as JSON (see the plan). The design below is the
+original sketch; where it differs (tool names, no `assistants` row, `ai_tool_calls`), the plan
+and the code win.
 
 **Tools** (`ai/tools/`, read-only, each takes `ToolContext` with `userId` + allowed monitor IDs):
 

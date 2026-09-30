@@ -119,7 +119,7 @@ from the snapshot.
 | `get_response_times` | monitor, from, to | avg and p95 ms, slowest day | `check_daily_stats` |
 | `get_incidents` | from, to, monitor (optional) | start, end, duration, cause for each (≤ 20) | new `IncidentRepository.findInRange` |
 | `get_incident_details` | monitor + start time, or "latest" | timeline: failed checks, when it opened, alerts sent, recovery | `IncidentQueryService.detail` |
-| `get_recent_failures` | monitor, limit (≤ 10) | time, status code, error message of failed checks | `CheckRepository` (raw checks, ≤ 62 days) |
+| `get_recent_failures` | monitor, limit (≤ 10), from and to (optional) | how many failed, then time, status code, error message of the newest | `CheckRepository` (raw checks, ≤ 62 days) |
 
 Every tool answers one of:
 - the data, with `truncated: true` when a list was cut;
@@ -254,23 +254,43 @@ Each step ends with something you can run or test.
 - Count requests per question in the log; confirm the free tier copes.
 - Update `CLAUDE.md` (tool rules), `AI_PLAN.md`; copy into `ai-milestones/milestone-2-tools/`.
 
+> **Step 7 result (done, 30 Sep – 1 Oct 2026).** Against real Gemini (`gemini-3.1-flash-lite`):
+> - **The first question failed**, and only a real provider could show why. Spring AI's Gemini
+>   client parses every tool result as JSON to build Gemini's `functionResponse`; our results
+>   were plain text in `<tool_result>`, so round 2 died on `Unexpected character ('<')`. The
+>   fake `ChatModel` in the tests takes any string, and so does Anthropic. **Fix:**
+>   `GuardedToolCallback` sends `{"result": "<tool_result>…</tool_result>"}`; the fence is
+>   unchanged, and `ai_tool_calls` still saves plain text. A test now checks the JSON shape.
+> - **Then all four passed**, each in **2 model requests** (~3,100–3,400 input tokens):
+>   30-day uptime 67.52% (117 checks, 38 failed, matching the database); yesterday's failed
+>   checks; "Why did this happen?" from incident #6 (the 503); Free plan "uptime in June" →
+>   "only goes back 7 days, to 23 September".
+> - **A gap it showed:** `get_recent_failures` had no dates, so "yesterday's failed checks"
+>   really meant "the latest 5". It now takes optional `from`/`to` and says how many failed in
+>   the range ("38 failed checks on 29 Sep; the latest 5"). Retried on Gemini: it passes the
+>   dates itself, and a quiet day gets "No failed checks".
+> - The lookup lines appear while the answer is still loading and survive reopening the chat;
+>   the page buttons open chats tagged "About the incident on Health (Sep 29, 02:36 PM)".
+
 ---
 
 ## Done when
 
-- [ ] Questions about any date range within the plan's history get real figures.
-- [ ] Incident details and failed checks can be asked about.
-- [ ] No tool can reach another user's or an unshared monitor (tests, including same-name monitors).
-- [ ] At most 5 tool calls per message; the 6th is refused politely.
-- [ ] Every tool call is saved with its answer; the user sees what was looked up.
-- [ ] "Ask AI about this" works from monitor and incident pages.
-- [ ] `./mvnw test` and `npm test` green.
+- [x] Questions about any date range within the plan's history get real figures.
+- [x] Incident details and failed checks can be asked about.
+- [x] No tool can reach another user's or an unshared monitor (tests, including same-name monitors).
+- [x] At most 5 tool calls per message; the 6th is refused politely.
+- [x] Every tool call is saved with its answer; the user sees what was looked up.
+- [x] "Ask AI about this" works from monitor and incident pages.
+- [x] `./mvnw test` and `npm test` green.
 
 ## Risks to watch
 
 - **Spring AI 2.0 tool loop.** Settled by Step 1: we run it, and streaming with tools works on
   Gemini. Still to watch: a model asking for several tools in one reply (run them all, then
   continue), and the options gotcha above.
+- **Tool results must be JSON for Gemini.** Found in Step 7 (see above): the fake model in the
+  tests accepts anything, so only a real provider call shows a format problem.
 - **Free-tier rate limits.** Each tool round is a request. If questions start failing with 429s
   from Google, lower the cap to 3 or enable billing.
 - **Wrong tool, wrong dates.** Models misread "last month" or pick the wrong monitor. The lookup
