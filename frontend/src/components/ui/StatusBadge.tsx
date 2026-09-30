@@ -14,7 +14,7 @@ const styles: Record<DisplayStatus, { label: string; badge: string; dot: string;
     pulse: true,
   },
   SUSPICIOUS: {
-    label: 'Degraded',
+    label: 'Failing',
     badge: 'bg-amber-50 text-amber-800 ring-amber-600/20 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-500/30',
     dot: 'bg-amber-500',
   },

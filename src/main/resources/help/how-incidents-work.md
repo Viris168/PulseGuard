@@ -1,7 +1,7 @@
 ---
 title: How incidents work
 summary: When PulseGuard decides a monitor is down, opens an incident and alerts you, and when it closes it again.
-describes: incident/MonitorStateMachine.java, check/CheckExecutor.java, stats/RetentionService.java, incident/IncidentEngine.java, heartbeat/HeartbeatSchedule.java, enumeration/ErrorType.java, application.yaml (pulseguard.incident)
+describes: incident/MonitorStateMachine.java, monitor/MonitorService.java, check/CheckExecutor.java, stats/RetentionService.java, incident/IncidentEngine.java, heartbeat/HeartbeatSchedule.java, enumeration/ErrorType.java, application.yaml (pulseguard.incident)
 ---
 
 An **incident** is a confirmed outage: a period when a monitor was down. PulseGuard is careful
@@ -28,7 +28,7 @@ as "Expected 200 but got 503", appears on the incident page.
 ## From up to down: three failures in a row
 
 - **Up**: all is well.
-- **Degraded**: the latest check failed. Nothing is sent yet; it could be a one-off network blip.
+- **Failing**: the latest check failed. Nothing is sent yet; it could be a one-off network blip.
   If the next check passes, the monitor goes back to **Up** and the failure is forgotten.
 - **Down**: **3 checks in a row failed**. PulseGuard opens an incident and sends you an alert.
 
@@ -63,6 +63,14 @@ You get **one alert when an incident opens and one when it's resolved**, on ever
 that's switched on: email, and Slack on Pro and Business plans. You don't get an alert for each
 failed check.
 
+## Pausing or deleting a monitor
+
+- **Pausing** stops the checks but keeps everything as it is, including an open incident. It
+  resolves once checks pass again after you resume. A paused heartbeat gets a full period from
+  the moment you resume, so the pause itself isn't counted as a missed ping.
+- **Deleting** a monitor deletes its checks and incidents with it. Pause it instead if you want
+  to keep its history.
+
 ## The incident page
 
 Every incident has a page (under **Incidents**) with:
@@ -73,6 +81,7 @@ Every incident has a page (under **Incidents**) with:
   passing checks that resolved it;
 - a short **summary** in plain words.
 
-A monitor has at most one open incident at a time. Incidents themselves are kept. The individual
-checks behind them are kept for 7 days on Free and up to 62 days on Pro and Business; after that,
-daily uptime and response-time figures remain for your plan's full history.
+A monitor has at most one open incident at a time. Incidents are kept for as long as the monitor
+exists. The individual checks behind them are kept for 7 days on Free and up to 62 days on Pro
+and Business; after that, daily uptime and response-time figures remain for your plan's full
+history.

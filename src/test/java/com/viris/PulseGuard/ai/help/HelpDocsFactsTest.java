@@ -76,10 +76,10 @@ class HelpDocsFactsTest {
         String rawDays = find(yaml, "raw-check-days: (\\d+)");
         String fairUse = find(yaml, "fair-use-daily-questions: \\$\\{PULSEGUARD_AI_FAIR_USE_DAILY_QUESTIONS:(\\d+)}");
 
-        String plans = article("plans-and-limits");
+        String plans = flat(article("plans-and-limits"));
         assertThat(plans).contains("never more than **" + rawDays + " days**").contains("fair use: " + fairUse + ")")
                 .contains("fair-use cap of " + fairUse + " questions");
-        assertThat(article("how-incidents-work")).contains("up to " + rawDays + " days on Pro and Business");
+        assertThat(flat(article("how-incidents-work"))).contains("up to " + rawDays + " days on Pro and Business");
     }
 
     @Test
@@ -88,9 +88,23 @@ class HelpDocsFactsTest {
         String failures = find(env, "PULSEGUARD_INCIDENT_FAILURE_THRESHOLD=(\\d+)");
         String passes = find(env, "PULSEGUARD_INCIDENT_RECOVERY_THRESHOLD=(\\d+)");
 
-        String doc = article("how-incidents-work");
+        String doc = flat(article("how-incidents-work"));
         assertThat(doc).contains("**" + failures + " checks in a row failed**")
                 .contains("**" + passes + " checks in a row passed**");
+    }
+
+    @Test
+    void theStatusesInGettingStartedAreTheLabelsTheAppShows() throws IOException {
+        String badge = Files.readString(Path.of("frontend/src/components/ui/StatusBadge.tsx"));
+        Matcher label = Pattern.compile("label: '([^']+)'").matcher(badge);
+        List<String> labels = new ArrayList<>();
+        while (label.find()) {
+            labels.add(label.group(1));
+        }
+        assertThat(labels).hasSize(6);
+
+        String doc = article("getting-started");
+        labels.forEach(l -> assertThat(doc).as("getting-started explains '%s'", l).contains("- **" + l + "**: "));
     }
 
     // ─── helpers ─────────────────────────────────────────────────────────────
@@ -98,6 +112,11 @@ class HelpDocsFactsTest {
     private static String article(String slug) throws IOException {
         return new PathMatchingResourcePatternResolver().getResource("classpath:help/" + slug + ".md")
                 .getContentAsString(StandardCharsets.UTF_8);
+    }
+
+    /** The text with line breaks as spaces: wrapping a Markdown line never changes what it says. */
+    private static String flat(String text) {
+        return text.replaceAll("\\s+", " ");
     }
 
     private static List<String> sections(String body) {

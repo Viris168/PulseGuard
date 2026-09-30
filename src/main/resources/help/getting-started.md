@@ -1,7 +1,7 @@
 ---
 title: Getting started
 summary: Create an account, add your first monitor and get alerted when it goes down.
-describes: auth/AuthService.java, notification/NotificationChannel.java, scheduling/SchedulerService.java, frontend/src/pages/MonitorFormPage.tsx, frontend/src/pages/MonitorsPage.tsx, frontend/src/components/ui/StatusBadge.tsx
+describes: auth/AuthService.java, common/net/SafeUrlValidator.java, notification/NotificationChannel.java, scheduling/SchedulerService.java, frontend/src/pages/MonitorFormPage.tsx, frontend/src/pages/MonitorsPage.tsx, frontend/src/components/ui/StatusBadge.tsx
 ---
 
 PulseGuard checks your APIs and websites on a schedule and tells you when they stop working.
@@ -32,6 +32,20 @@ a 10-second timeout, and status `200` counted as up. How often you can check dep
 
 Save it, and the first check runs within about half a minute. It shows **Waiting** until then.
 
+## Addresses you can't monitor
+
+PulseGuard checks your monitors from the internet, so the URL must be reachable from the
+internet:
+
+- Only `http://` and `https://` URLs can be monitored.
+- The host name must resolve. A typo in the domain is caught when you save.
+- **Private and internal addresses are refused**, for security: `localhost`, `127.0.0.1`,
+  `10.x.x.x`, `192.168.x.x`, `172.16–31.x.x` and similar. A URL on your laptop or office network
+  can't be checked from outside it.
+
+To watch something that isn't reachable from the internet, such as an internal job, use a
+**heartbeat monitor** and have the job ping PulseGuard instead.
+
 ## Read the monitor list
 
 Each monitor shows its status, its uptime over the last 24 hours, its latest response time and
@@ -39,7 +53,7 @@ when it was last checked. The status can be:
 
 - **Waiting**: added, but not checked yet.
 - **Up**: the latest checks passed.
-- **Degraded**: the latest check failed, but not enough in a row to call it an outage yet.
+- **Failing**: the latest check failed, but not enough in a row to call it an outage yet.
 - **Down**: it failed several checks in a row, so an incident is open and you've been alerted.
 - **Recovering**: it's passing again, and PulseGuard is making sure before closing the incident.
 - **Paused**: you paused it; it isn't checked until you resume it.
