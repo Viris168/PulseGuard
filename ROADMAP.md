@@ -15,7 +15,7 @@ Personal reminder of features discussed and the order to build them.
    (Settings → Alert channels). Telegram, SMS and generic webhooks follow the same pattern.
 7. **Rollup and retention** — ✅ done: a nightly job summarises checks per day, then trims
    history to each plan's limit (Free 7 days, Pro 90, Business 365; raw checks 62 days at most).
-8. **Extras** — heartbeat URLs, public status page, Ask AI, API keys.
+8. **Extras** — heartbeat URLs, public status page, API keys; Ask AI ✅ done (see §4).
 
 ---
 
@@ -90,33 +90,33 @@ set `user.plan = PRO`. Manage/cancel via Stripe Customer Portal.
 
 ---
 
-## 4. Ask AI (inspired by Cloudflare "Ask AI")
+## 4. Ask AI (inspired by Cloudflare "Ask AI") ✅ done
 
 Answers questions about the user's own data: "Why did Shop API go down last night?",
-"Which monitor is slowest this week?", "What does 502 mean?"
+"Which monitor is slowest this week?", "What does 502 mean?" Built in milestones (details and
+learning notes in `AI_PLAN.md` and `ai-milestones/`):
 
-```
-React panel → POST /api/ai/ask (JWT) → AiAssistantService
-   1. load this user's monitors + recent failed checks (scoped by userId)
-   2. send question + data to the LLM
-   ← answer
-```
+- **Incident summary** on each incident page, with a rule-based fallback.
+- **Ask AI chat:** saved conversations, streamed answers with Stop, follow-ups, 👍/👎.
+- **Lookups (tools):** uptime, response times, incidents, incident details and failed checks for
+  any range the plan keeps; each lookup shows as "Checked …" under the answer.
+- **"Ask AI" buttons** on monitor and incident pages.
 
-Rules:
+Rules that held from the first sketch:
 - API key lives **only on the backend**, never in React.
-- Data scoped by `principal.getUserId()`, never chosen by the model or request.
-- Rate limit per plan (e.g. Free 5/day) → natural Pro feature.
+- Data scoped by the logged-in user, never chosen by the model or the request; only monitors
+  the user shared with Ask AI.
+- Questions per day by plan: Free 5, Pro 100, Business unlimited (fair use 500).
 
-Provider plan:
-- **Dev:** Ollama (free, local, private, no API key).
-- **Abstraction:** Spring AI `ChatClient` so switching provider is config only.
-- **Prod:** paid API (reliable, customer data not used for training). A small model
-  such as Claude Haiku 4.5 costs well under $0.01 per question.
-- Free-tier alternatives (Gemini, Groq, OpenRouter, Cloudflare Workers AI) — check current
-  limits/terms; some free tiers may use prompts for training.
+Provider: Spring AI `ChatModel`, switched by `PULSEGUARD_AI_PROVIDER` (Google Gemini
+`gemini-3.1-flash-lite` in use; Anthropic Claude Haiku also wired). One lookup question costs
+2 model requests.
 
-Cheaper first AI feature: **auto-summary per incident** in the alert email
-(one call per incident, no chat UI needed).
+Still open:
+- Check streaming behind the production proxy (Caddy) after the next deploy.
+- Usage and cost dashboard for the admin; per-plan rollout switch.
+- Maybe later (`AI_PLAN.md` Milestone 3+): answers from PulseGuard's help docs (RAG), and a
+  support widget on public pages.
 
 ---
 
