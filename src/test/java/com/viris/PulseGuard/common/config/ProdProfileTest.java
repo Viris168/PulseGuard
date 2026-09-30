@@ -1,5 +1,6 @@
 package com.viris.PulseGuard.common.config;
 
+import com.viris.PulseGuard.TestDatabase;
 import com.viris.PulseGuard.PulseGuardApplication;
 import com.viris.PulseGuard.auth.UserRepository;
 import com.viris.PulseGuard.auth.security.InMemoryTokenDenylist;
@@ -42,7 +43,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ProdProfileTest {
 
     @ServiceConnection
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:16-alpine");
+    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(TestDatabase.IMAGE);
 
     static {
         POSTGRES.start();

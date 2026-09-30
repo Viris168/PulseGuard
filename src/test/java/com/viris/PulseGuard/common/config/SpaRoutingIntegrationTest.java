@@ -1,5 +1,6 @@
 package com.viris.PulseGuard.common.config;
 
+import com.viris.PulseGuard.TestDatabase;
 import com.viris.PulseGuard.auth.UserRepository;
 import com.viris.PulseGuard.auth.security.InMemoryLoginRateLimiter;
 import com.viris.PulseGuard.auth.security.InMemoryTokenDenylist;
@@ -35,7 +36,7 @@ class SpaRoutingIntegrationTest {
     private static final String SPA_MARKER = "PulseGuard test SPA";
 
     @ServiceConnection
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:16-alpine");
+    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(TestDatabase.IMAGE);
 
     static {
         POSTGRES.start();

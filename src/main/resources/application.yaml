@@ -67,6 +67,10 @@ spring:
       # AI Studio). With "none" nothing is sent anywhere and the dashboard shows its rule-based
       # summary. Only the selected provider's beans are created.
       chat: ${PULSEGUARD_AI_PROVIDER:none}
+      # Which model embeds the help docs for Ask AI's docs search: "none" (search off, the default)
+      # or "google-genai" (needs GOOGLE_AI_API_KEY). Separate from chat: Claude has no embeddings.
+      embedding:
+        text: ${PULSEGUARD_AI_EMBEDDING_PROVIDER:none}
     anthropic:
       api-key: ${ANTHROPIC_API_KEY:}
       # The page-view deadline is pulseguard.ai.timeout, for every provider; this only stops
@@ -95,6 +99,17 @@ spring:
             # Gemini 3 models take a level, not a token budget (thinking-budget: 0 is rejected).
             # A few sentences from given facts need little reasoning.
             thinking-level: LOW
+        embedding:
+          api-key: ${GOOGLE_AI_API_KEY:}
+          text:
+            options:
+              # AI_MILESTONE_3.md Step 1: newer than -001, 8,192-token input, normalized vectors.
+              # Changing the model re-embeds every chunk on the next start (the hash includes it).
+              model: ${PULSEGUARD_AI_EMBEDDING_MODEL:gemini-embedding-2}
+              # Must match help_chunks.embedding's vector(768) (V24).
+              dimensions: 768
+              # For indexing; searches ask with RETRIEVAL_QUERY per request.
+              task-type: RETRIEVAL_DOCUMENT
   task:
     execution:
       pool:

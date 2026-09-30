@@ -131,7 +131,7 @@ Entities live in `model/`, enums in `enumeration/`, and repositories in `reposit
 ## Testing
 
 - Unit test all business logic, especially `IncidentEngine` state transitions (every transition, plus thresholds and edge cases).
-- Use Testcontainers PostgreSQL for repository and integration tests. Do not use H2.
+- Use Testcontainers PostgreSQL for repository and integration tests, with `new PostgreSQLContainer(TestDatabase.IMAGE)` (the pgvector image, as in production). Do not use H2.
 - Mock external services (Stripe, SMTP, target URLs). Use `MockWebServer` (OkHttp) to simulate target APIs: success, 500s, timeouts, slow responses.
 - Test SSRF validation with private IPs and hostnames that resolve to them.
 - Test names describe behavior, e.g. `opensIncidentAfterThreeConsecutiveFailures()`.

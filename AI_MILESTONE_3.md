@@ -250,6 +250,26 @@ Each step ends with something you can run or test.
 - **Test (Testcontainers, fake embedding model):** first start embeds all; second start embeds
   nothing; editing one section re-embeds only that chunk; deleting an article removes its chunks.
 
+> **Step 3 result (done, 1 Oct 2026).**
+> - **The image switch needed more than a new image name.** `postgres:16-alpine` uses musl,
+>   `pgvector/pgvector:pg16` glibc, and the database's `en_US.utf8` collation sorts differently
+>   under each. After swapping the local volume, `amcheck` found two indexes out of order
+>   (`stripe_events_pkey`, `subscriptions_stripe_subscription_id_key`); `REINDEX DATABASE` fixed
+>   them and all 43 text indexes passed. The production steps (backup, stop app, swap, `REINDEX`,
+>   start) are in DEPLOY.md. The local database was backed up first; row counts matched after.
+> - Testcontainers: one `TestDatabase.IMAGE` for all 35 test classes; the whole suite (842 tests)
+>   passes on pgvector.
+> - V24 `help_chunks`: no `UNIQUE` on the hash (two identical sections could collide); rows are
+>   matched by `(article, anchor)`.
+> - `HelpArticles` parses the docs (reused by the /docs page in Step 6); `HelpDocsIndexer` runs on
+>   startup under a transaction-level advisory lock, embeds only new or changed sections in
+>   batches of 50, and never stops the app. Embeddings are off unless
+>   `PULSEGUARD_AI_EMBEDDING_PROVIDER=google-genai`, so tests and AI-less installs need no key.
+> - **Real Gemini:** 85 sections embedded in about 5.5 s; the next start embedded 0. Fixing
+>   apostrophes in anchors re-embedded exactly the 7 affected sections. A first taste of search:
+>   "How do I get alerts in Slack?", "my cron job monitor says late", "what does 502 mean" and
+>   "can I monitor localhost" each found the right section first (cosine 0.64–0.85).
+
 ### Step 4: Search and the golden set (1.5 days)
 - `HelpDocsSearch`: hybrid query (full-text side ORs the words, Step 1), reciprocal rank fusion, threshold. `help-eval.yaml` with ~30
   questions and the article each should find; an eval test tagged `eval` (real Gemini, run on

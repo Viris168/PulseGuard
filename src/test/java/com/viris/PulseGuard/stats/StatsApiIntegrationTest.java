@@ -1,5 +1,6 @@
 package com.viris.PulseGuard.stats;
 
+import com.viris.PulseGuard.TestDatabase;
 import com.viris.PulseGuard.auth.User;
 import com.viris.PulseGuard.auth.UserRepository;
 import com.viris.PulseGuard.auth.security.InMemoryLoginRateLimiter;
@@ -47,7 +48,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class StatsApiIntegrationTest {
 
     @ServiceConnection
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:16-alpine");
+    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(TestDatabase.IMAGE);
 
     static {
         POSTGRES.start();

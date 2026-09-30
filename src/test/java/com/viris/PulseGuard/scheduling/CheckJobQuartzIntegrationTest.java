@@ -1,5 +1,6 @@
 package com.viris.PulseGuard.scheduling;
 
+import com.viris.PulseGuard.TestDatabase;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.quartz.JobBuilder;
@@ -27,7 +28,7 @@ import static org.mockito.Mockito.verify;
 class CheckJobQuartzIntegrationTest {
 
     @ServiceConnection
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:16-alpine");
+    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(TestDatabase.IMAGE);
 
     static {
         POSTGRES.start();
