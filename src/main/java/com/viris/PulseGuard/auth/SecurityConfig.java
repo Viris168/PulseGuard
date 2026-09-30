@@ -83,6 +83,10 @@ public class SecurityConfig {
                         // reached the client as a 401, which the frontend treats as "signed out".
                         // A request made to /error directly is a normal REQUEST and still needs a token.
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+                        // The container's dispatch that finishes a streamed response (the Ask AI chat's
+                        // answer). The request was authorized when it started; the JWT filter does not
+                        // run again on this dispatch, so without this the stream would end in a 401.
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                         // Only the unauthenticated entry points; /me and /logout need a token.
                         .requestMatchers(HttpMethod.POST,
                                 "/api/auth/register", "/api/auth/login", "/api/auth/refresh",

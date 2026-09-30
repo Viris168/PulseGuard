@@ -214,8 +214,14 @@ nothing is sent to any AI provider and the dashboard shows its built-in incident
 | `ANTHROPIC_API_KEY` | For `anthropic`, from console.anthropic.com. Set a monthly spend limit in the console |
 | `PULSEGUARD_AI_GOOGLE_MODEL` | Default `gemini-3.1-flash-lite`. Google retires model names; if every AI request fails, check the model still exists |
 | `PULSEGUARD_AI_SUMMARY_MODEL` | Anthropic model, default `claude-haiku-4-5` |
-| `PULSEGUARD_AI_TIMEOUT` | Default `20s`, the longest a request waits for the model |
+| `PULSEGUARD_AI_TIMEOUT` | Default `20s`, the longest a request waits for the model (for chat: for its first words) |
+| `PULSEGUARD_AI_STREAM_TIMEOUT` | Default `90s`, the longest one chat answer may take from start to finish |
 | `PULSEGUARD_AI_FAIR_USE_DAILY_QUESTIONS` | Default `500`, the Ask AI cap per day on Business. Free (5) and Pro (100) are fixed in `PlanLimits` |
+
+Ask AI chat answers stream word by word (Server-Sent Events). `deploy/Caddyfile` leaves that one
+path out of compression so pieces aren't held back; behind another proxy, turn off response
+buffering for `/api/ai/conversations/*/messages` (the app also sends `X-Accel-Buffering: no`).
+After deploying, check an answer appears word by word rather than all at once.
 
 Failed AI calls are logged as `AI … failed` or `AI … timed out`, with the error class but never
 the prompt. Each answered call logs its token counts.

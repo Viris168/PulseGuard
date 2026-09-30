@@ -28,10 +28,17 @@ public class AiRuleException extends RuntimeException {
         return new AiRuleException(HttpStatus.SERVICE_UNAVAILABLE, "Ask AI isn't available on this server.");
     }
 
-    /** The provider failed or was too slow; the question was handed back. */
-    public static AiRuleException unavailable() {
-        return new AiRuleException(HttpStatus.SERVICE_UNAVAILABLE,
-                "Ask AI couldn't answer just now. Try again in a moment; this question wasn't counted.");
+    public static AiRuleException conversationFull(int max) {
+        return new AiRuleException(HttpStatus.CONFLICT,
+                "This chat has reached " + max + " messages. Start a new chat to keep going.");
+    }
+
+    public static AiRuleException invalidRating() {
+        return new AiRuleException(HttpStatus.BAD_REQUEST, "Rate an answer with thumbs up (1) or down (-1).");
+    }
+
+    public static AiRuleException onlyAnswersCanBeRated() {
+        return new AiRuleException(HttpStatus.BAD_REQUEST, "Only Ask AI's answers can be rated.");
     }
 
     public HttpStatus getStatus() {

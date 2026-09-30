@@ -135,7 +135,7 @@ class IncidentSummaryServiceTest {
             Thread.sleep(5_000);
             return response("Too late.");
         });
-        IncidentSummaryService service = service(new AiProperties(TTL, Duration.ofMillis(100), 500));
+        IncidentSummaryService service = service(new AiProperties(TTL, Duration.ofMillis(100), Duration.ofSeconds(90), 500));
 
         long started = System.nanoTime();
         Optional<IncidentSummaryResponse> result = service.summarize(USER_ID, INCIDENT_ID);
@@ -213,7 +213,7 @@ class IncidentSummaryServiceTest {
     // ─── helpers ─────────────────────────────────────────────────────────────
 
     private IncidentSummaryService service() {
-        return service(new AiProperties(TTL, Duration.ofSeconds(5), 500));
+        return service(new AiProperties(TTL, Duration.ofSeconds(5), Duration.ofSeconds(90), 500));
     }
 
     private IncidentSummaryService service(AiProperties properties) {

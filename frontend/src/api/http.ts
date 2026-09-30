@@ -51,19 +51,28 @@ async function toApiError(res: Response): Promise<ApiError> {
   }
 }
 
-export async function api<T>(path: string, { method = 'GET', body, auth = true }: RequestOptions = {}): Promise<T> {
+/**
+ * The request with auth, one refresh-and-retry on 401 and error mapping, returning the raw
+ * response for callers that read the body themselves (the Ask AI chat stream). Throws ApiError
+ * for any non-2xx status; a DOMException named AbortError when {@code signal} aborts.
+ */
+export async function apiFetch(
+  path: string,
+  { method = 'GET', body, auth = true, signal }: RequestOptions & { signal?: AbortSignal } = {},
+): Promise<Response> {
   const send = () => {
     const headers: Record<string, string> = {}
     if (body !== undefined) headers['Content-Type'] = 'application/json'
     const token = getSession()?.token
     if (auth && token) headers.Authorization = `Bearer ${token}`
-    return fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
+    return fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal })
   }
 
   let res: Response
   try {
     res = await send()
-  } catch {
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') throw e
     throw new ApiError(0, 'Cannot reach the PulseGuard server. Is the backend running?')
   }
 
@@ -75,6 +84,11 @@ export async function api<T>(path: string, { method = 'GET', body, auth = true }
     }
   }
   if (!res.ok) throw await toApiError(res)
+  return res
+}
+
+export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const res = await apiFetch(path, options)
   if (res.status === 204) return undefined as T
   const text = await res.text()
   return (text ? JSON.parse(text) : undefined) as T

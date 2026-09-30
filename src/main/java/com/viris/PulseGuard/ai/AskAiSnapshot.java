@@ -15,7 +15,7 @@ import java.util.List;
  * @param omittedMonitors shared monitors left out to keep the prompt bounded
  * @param hiddenMonitors  the user's monitors not shared with Ask AI
  */
-record AskAiSnapshot(Instant now,
+public record AskAiSnapshot(Instant now,
                      ZoneId zone,
                      List<MonitorFacts> monitors,
                      int omittedMonitors,
@@ -25,7 +25,7 @@ record AskAiSnapshot(Instant now,
     /**
      * @param lastFailure the newest failed check's error, only for monitors that aren't UP
      */
-    record MonitorFacts(Long id,
+    public record MonitorFacts(Long id,
                         String name,
                         MonitorType type,
                         MonitorState state,
@@ -39,7 +39,7 @@ record AskAiSnapshot(Instant now,
                         String lastFailure) {
     }
 
-    record IncidentFacts(String monitorName,
+    public record IncidentFacts(String monitorName,
                          boolean open,
                          Instant startedAt,
                          Instant resolvedAt,

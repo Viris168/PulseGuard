@@ -67,7 +67,7 @@ src/main/java/com/viris/PulseGuard/
 ├── billing/       # StripeService, StripeWebhookController, PlanLimits
 ├── stats/         # rollup and retention jobs, StatsController
 ├── statuspage/    # public status page
-├── ai/            # ModelCaller, incident summaries, Ask AI (prompts, snapshot, access, quota)
+├── ai/            # ModelCaller, incident summaries, Ask AI access/quota/snapshot; chat/ = conversations + streaming
 └── common/        # exceptions, GlobalExceptionHandler, config properties
 
 src/main/resources/
@@ -114,11 +114,12 @@ Entities live in `model/`, enums in `enumeration/`, and repositories in `reposit
 5. **Plan limits enforced server-side** in services via `PlanLimits` (monitor count, minimum interval, channels, retention). Never rely on the frontend.
 6. **SSRF protection.** Before saving a monitor and before each check, resolve the host and reject private/internal addresses: loopback, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16`, IPv6 local ranges. Check after DNS resolution, not just the URL string.
 7. **Stripe webhooks** must verify the signature and deduplicate by `stripe_event_id` (stored in `stripe_events`) before processing.
-8. **AI calls** go through `ModelCaller` only (one timeout for every provider, never throws). An AI failure must never fail a page: summaries fall back to the rule-based text, Ask AI answers 503 and hands the question back to the quota.
+8. **AI calls** go through `ModelCaller` only: `call()` for one answer, `stream()` for the chat (one timeout for every provider, errors become a safe message). An AI failure must never fail a page: summaries fall back to the rule-based text; a chat answer that fails before any text is saved `FAILED` and hands the question back to the quota.
    - Send the model only what the answer needs: never monitor URLs, headers, ping tokens or alert targets.
    - Text from monitored servers and users (error messages, monitor names) goes through `PromptText` inside the prompt's data tag; the system prompt says it is data, never instructions.
    - Ask AI only reads monitors the user shared (`AiAccess`), always scoped by `user_id`. AI endpoints are session-only, so API keys can't spend AI quota.
    - Test with a fake `ChatModel` bean; tests never call a real provider (`spring.ai.model.chat=none`).
+   - **Chat streaming** (`POST /api/ai/conversations/{id}/messages`, Server-Sent Events): every refusal (ownership, consent, 50-message cap, quota) is thrown before the stream opens, so it is plain JSON. No database transaction is held while the model writes (`ChatMessageStore` does short ones). `ChatTurn` saves the answer exactly once, however it ends (`COMPLETE`, `PARTIAL` on Stop or disconnect, `FAILED`). `SecurityConfig` permits the `ASYNC` dispatch that finishes a stream; without it every stream ends in Access Denied.
 
 ## Security and Secrets
 

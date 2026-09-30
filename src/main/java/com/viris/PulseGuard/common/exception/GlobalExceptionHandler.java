@@ -53,6 +53,12 @@ public class GlobalExceptionHandler {
                 .body(ApiError.of(HttpStatus.NOT_FOUND.value(), ex.getMessage()));
     }
 
+    @ExceptionHandler(ChatNotFoundException.class)
+    public ResponseEntity<ApiError> handleChatNotFound(ChatNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiError.of(HttpStatus.NOT_FOUND.value(), ex.getMessage()));
+    }
+
     @ExceptionHandler(IncidentNotFoundException.class)
     public ResponseEntity<ApiError> handleIncidentNotFound(IncidentNotFoundException ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)

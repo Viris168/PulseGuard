@@ -2,22 +2,19 @@ package com.viris.PulseGuard.ai;
 
 import com.viris.PulseGuard.ai.dto.AiAccessDto;
 import com.viris.PulseGuard.ai.dto.AiQuotaResponse;
-import com.viris.PulseGuard.ai.dto.AskAiRequest;
-import com.viris.PulseGuard.ai.dto.AskAiResponse;
 import com.viris.PulseGuard.auth.UserPrincipal;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Ask AI. Session only (SecurityConfig): every question costs money, and consent is a choice
- * the person makes, not something an API key should be able to change.
+ * Ask AI's consent and quota; the questions themselves go through ChatController. Session only
+ * (SecurityConfig): consent is a choice the person makes, not something an API key should change.
  */
 @RestController
 @RequestMapping("/api/ai")
@@ -40,11 +37,5 @@ public class AskAiController {
     @GetMapping("/quota")
     public AiQuotaResponse quota(@AuthenticationPrincipal UserPrincipal principal) {
         return askAiService.quota(principal.getUserId());
-    }
-
-    @PostMapping("/ask")
-    public AskAiResponse ask(@AuthenticationPrincipal UserPrincipal principal,
-                             @Valid @RequestBody AskAiRequest request) {
-        return askAiService.ask(principal.getUserId(), request.question(), request.timeZone());
     }
 }

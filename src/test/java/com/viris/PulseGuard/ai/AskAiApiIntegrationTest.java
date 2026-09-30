@@ -22,6 +22,7 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -32,8 +33,10 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import reactor.core.publisher.Flux;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
@@ -44,6 +47,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -51,8 +55,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Ask AI through the real filter chain and database, with a fake model that records every
- * prompt it is sent: the prompts are what prove which data reaches the provider.
+ * Ask AI's consent, quota and privacy through the real filter chain and database, asking through
+ * the chat endpoint with a fake model that records what it is sent: the prompts are what prove
+ * which data reaches the provider.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -89,14 +94,23 @@ class AskAiApiIntegrationTest {
             return new InMemoryAiQuestionQuota();
         }
 
+        /** Streams ANSWER, recording the newest message it was sent: the data and the question. */
         @Bean
         ChatModel fakeChatModel() {
-            return prompt -> {
-                PROMPTS.add(prompt.getInstructions().get(1).getText());
-                if (MODEL_FAILS.get()) {
-                    throw new IllegalStateException("provider unavailable");
+            return new ChatModel() {
+                @Override
+                public ChatResponse call(Prompt prompt) {
+                    throw new UnsupportedOperationException("Ask AI streams");
                 }
-                return new ChatResponse(List.of(new Generation(new AssistantMessage(ANSWER))));
+
+                @Override
+                public Flux<ChatResponse> stream(Prompt prompt) {
+                    PROMPTS.add(prompt.getInstructions().getLast().getText());
+                    if (MODEL_FAILS.get()) {
+                        return Flux.error(new IllegalStateException("provider unavailable"));
+                    }
+                    return Flux.just(new ChatResponse(List.of(new Generation(new AssistantMessage(ANSWER)))));
+                }
             };
         }
     }
@@ -155,13 +169,11 @@ class AskAiApiIntegrationTest {
     void answersFromTheCallersOwnData() throws Exception {
         shareAll(alice);
 
-        ask(alice, "Is anything down?")
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.answer").value(ANSWER))
-                .andExpect(jsonPath("$.links[0].label").value("Open Shop API"))
-                .andExpect(jsonPath("$.links[0].to").value("/monitors/" + shop.getId()))
-                .andExpect(jsonPath("$.quota.used").value(1))
-                .andExpect(jsonPath("$.quota.limit").value(5));
+        String stream = ask(alice, "Is anything down?").andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(stream).contains("Shop API** is down").contains("event:done")
+                .contains("\"used\":1").contains("\"limit\":5");
 
         assertThat(PROMPTS).hasSize(1);
         assertThat(PROMPTS.getFirst())
@@ -229,9 +241,9 @@ class AskAiApiIntegrationTest {
         shareAll(alice);
         MODEL_FAILS.set(true);
 
-        ask(alice, "Is anything down?")
-                .andExpect(status().isServiceUnavailable())
-                .andExpect(jsonPath("$.message", containsString("wasn't counted")));
+        String stream = ask(alice, "Is anything down?").andReturn().getResponse().getContentAsString();
+
+        assertThat(stream).contains("event:error").contains("wasn't counted");
 
         assertThat(questionQuota.used(userId("alice@example.com"))).isZero();
     }
@@ -266,7 +278,7 @@ class AskAiApiIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
         String key = "Bearer " + objectMapper.readTree(json).get("secret").asString();
 
-        ask(key, "Is anything down?").andExpect(status().isForbidden());
+        send(key, newChat(alice), "Is anything down?", null).andExpect(status().isForbidden());
         saveAccess(key, false, true, List.of()).andExpect(status().isForbidden());
 
         assertThat(PROMPTS).isEmpty();
@@ -274,9 +286,7 @@ class AskAiApiIntegrationTest {
 
     @Test
     void requiresLogin() throws Exception {
-        mockMvc.perform(post("/api/ai/ask").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"question\":\"hi\"}"))
-                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/ai/access")).andExpect(status().isUnauthorized());
     }
 
     // ─── helpers ─────────────────────────────────────────────────────────────
@@ -285,14 +295,30 @@ class AskAiApiIntegrationTest {
         return ask(auth, question, null);
     }
 
+    /**
+     * Asks in a new chat, as the panel does, and waits for the answer's stream to end. Refusals
+     * (403, 429, 400) come back before any stream, as plain JSON.
+     */
     private ResultActions ask(String auth, String question, String timeZone) throws Exception {
+        return send(auth, newChat(auth), question, timeZone);
+    }
+
+    private ResultActions send(String auth, long chat, String question, String timeZone) throws Exception {
         Map<String, Object> body = timeZone == null
                 ? Map.of("question", question)
                 : Map.of("question", question, "timeZone", timeZone);
-        return mockMvc.perform(post("/api/ai/ask")
+        ResultActions sent = mockMvc.perform(post("/api/ai/conversations/{id}/messages", chat)
                 .header(HttpHeaders.AUTHORIZATION, auth)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(body)));
+        MvcResult result = sent.andReturn();
+        return result.getRequest().isAsyncStarted() ? mockMvc.perform(asyncDispatch(result)) : sent;
+    }
+
+    private long newChat(String auth) throws Exception {
+        String json = mockMvc.perform(post("/api/ai/conversations").header(HttpHeaders.AUTHORIZATION, auth))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(json).get("id").asLong();
     }
 
     private void shareAll(String auth) throws Exception {

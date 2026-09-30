@@ -1,48 +1,127 @@
 import { Fragment, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, ArrowUp, Check, Globe, HeartPulse, SlidersHorizontal, Sparkles, X } from 'lucide-react'
-import { askAi, getAiAccess, getAiQuota, saveAiAccess, type AiAccess, type AiLink, type AiQuota } from '../../api/ai'
+import {
+  ArrowLeft,
+  ArrowUp,
+  Check,
+  Globe,
+  HeartPulse,
+  MessagesSquare,
+  Pencil,
+  RotateCcw,
+  SlidersHorizontal,
+  Sparkles,
+  Square,
+  SquarePen,
+  ThumbsDown,
+  ThumbsUp,
+  Trash2,
+  X,
+} from 'lucide-react'
+import {
+  createConversation,
+  deleteConversation,
+  getAiAccess,
+  getAiQuota,
+  getMessages,
+  listConversations,
+  rateMessage,
+  renameConversation,
+  saveAiAccess,
+  streamMessage,
+  type AiAccess,
+  type AiConversation,
+  type AiMessage,
+  type AiQuota,
+  type MessageStatus,
+} from '../../api/ai'
 import { ApiError } from '../../api/errors'
 import { listMonitors } from '../../api/monitors'
 import type { MonitorWithStats } from '../../types/monitor'
-import { cn } from '../../lib/format'
+import { cn, formatDateTime } from '../../lib/format'
+import { Button } from '../ui/Button'
+import { Modal } from '../ui/Modal'
 import { Spinner } from '../ui/Spinner'
 import { PulseMascot } from './PulseMascot'
 import { Switch } from '../ui/Switch'
 
-interface Message {
+/** One bubble in the chat. `key` is local; `id` is the saved message's, once the server has it. */
+interface ChatItem {
+  key: string
   role: 'user' | 'assistant' | 'error'
   text: string
-  links?: AiLink[]
+  id?: number
+  status?: MessageStatus
+  rating?: 1 | -1 | null
+  /** The answer is still arriving. */
+  streaming?: boolean
+  /** 429: offer the upgrade link. */
   upgrade?: boolean
+  /** The question to send again from a "Try again" button (only when it wasn't counted). */
+  retry?: string
 }
 
-type View = 'loading' | 'setup' | 'review' | 'chat'
+type View = 'loading' | 'setup' | 'review' | 'chat' | 'history'
+
+let nextKey = 0
+const key = () => `m${nextKey++}`
+
+function toItem(m: AiMessage): ChatItem {
+  return {
+    key: key(),
+    id: m.id,
+    role: m.role === 'USER' ? 'user' : 'assistant',
+    text: m.content,
+    status: m.status,
+    rating: m.rating,
+  }
+}
 
 const GENERIC_SUGGESTIONS = ['Which monitor is slowest this week?', 'What does 503 mean?', "What's down right now?"]
 
-/** Renders the answer format: blank-line paragraphs, "- " bullets, **bold**. Never uses innerHTML. */
+const BULLET = /^\s*[-*•]\s+/
+
+/**
+ * Renders the answer format: blank-line paragraphs, bullet lines ("- ", "* " or "• "), **bold**.
+ * A paragraph can mix text and bullets ("Two incidents:" then the list), so lines are grouped:
+ * each run of bullet lines becomes a list, each run of other lines a paragraph that keeps its
+ * line breaks. Never uses innerHTML.
+ */
 function RichText({ text }: { text: string }) {
   const inline = (s: string): ReactNode[] =>
     s.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
       part.startsWith('**') && part.endsWith('**') ? <strong key={i}>{part.slice(2, -2)}</strong> : <Fragment key={i}>{part}</Fragment>,
     )
+  const groups: { bullet: boolean; lines: string[] }[] = []
+  for (const block of text.split(/\n\s*\n/)) {
+    let previous: { bullet: boolean; lines: string[] } | null = null
+    for (const line of block.split('\n')) {
+      if (!line.trim()) continue
+      const bullet = BULLET.test(line)
+      if (previous && previous.bullet === bullet) {
+        previous.lines.push(line)
+      } else {
+        previous = { bullet, lines: [line] }
+        groups.push(previous)
+      }
+    }
+  }
   return (
     <div className="space-y-2">
-      {text.split('\n\n').map((block, i) => {
-        const lines = block.split('\n')
-        if (lines.every((l) => l.startsWith('- '))) {
-          return (
-            <ul key={i} className="list-disc space-y-0.5 pl-5">
-              {lines.map((l, j) => (
-                <li key={j}>{inline(l.slice(2))}</li>
-              ))}
-            </ul>
-          )
-        }
-        return <p key={i}>{inline(block)}</p>
-      })}
+      {groups.map((g, i) =>
+        g.bullet ? (
+          <ul key={i} className="list-disc space-y-0.5 pl-5">
+            {g.lines.map((l, j) => (
+              <li key={j}>{inline(l.replace(BULLET, ''))}</li>
+            ))}
+          </ul>
+        ) : (
+          <p key={i} className="whitespace-pre-line">
+            {inline(g.lines.join('\n'))}
+          </p>
+        ),
+      )}
     </div>
   )
 }
@@ -61,32 +140,46 @@ export function AskAiPanel({ open, onClose }: Props) {
   const [setupError, setSetupError] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  const [messages, setMessages] = useState<Message[]>([])
+  const [conversations, setConversations] = useState<AiConversation[]>([])
+  /** null: a new chat, created on the server when its first question is sent. */
+  const [chatId, setChatId] = useState<number | null>(null)
+  const [items, setItems] = useState<ChatItem[]>([])
+  const [loadingChat, setLoadingChat] = useState(false)
+  const [editing, setEditing] = useState<{ id: number; title: string } | null>(null)
+  /** The chat waiting for delete confirmation; null keeps the dialog closed. */
+  const [toDelete, setToDelete] = useState<AiConversation | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [input, setInput] = useState('')
-  const [thinking, setThinking] = useState(false)
+  const [streaming, setStreaming] = useState(false)
   const [quota, setQuota] = useState<AiQuota | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  /** Aborting it is Stop; closing the panel mid-answer aborts too. */
+  const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    Promise.all([getAiAccess(), listMonitors(), getAiQuota()])
-      .then(([a, m, q]) => {
+    Promise.all([getAiAccess(), listMonitors(), getAiQuota(), listConversations()])
+      .then(([a, m, q, c]) => {
         if (cancelled) return
         setLoadError(null)
         setAccess(a)
         setDraft(a.enabled ? a : { enabled: false, allMonitors: true, monitorIds: m.map((x) => x.id) })
         setMonitors([...m].sort((x, y) => x.name.localeCompare(y.name)))
         setQuota(q)
+        setConversations(c)
         setView(a.enabled ? 'chat' : 'setup')
       })
       .catch((e) => !cancelled && setLoadError(e instanceof Error ? e.message : 'Could not load Ask AI'))
-    const onKey = (e: globalThis.KeyboardEvent) => e.key === 'Escape' && onClose()
+    // Esc closes the panel, unless a dialog (delete confirmation) is open: Esc closes that instead.
+    const onKey = (e: globalThis.KeyboardEvent) => e.key === 'Escape' && !document.querySelector('dialog[open]') && onClose()
     document.addEventListener('keydown', onKey)
     return () => {
       cancelled = true
       document.removeEventListener('keydown', onKey)
+      abortRef.current?.abort() // closing the panel stops an answer in progress
     }
   }, [open, onClose])
 
@@ -96,7 +189,7 @@ export function AskAiPanel({ open, onClose }: Props) {
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' })
-  }, [messages, thinking])
+  }, [items])
 
   async function enable() {
     setSaving(true)
@@ -118,29 +211,149 @@ export function AskAiPanel({ open, onClose }: Props) {
     try {
       const saved = await saveAiAccess({ ...draft, enabled: false })
       setAccess(saved)
-      setMessages([])
+      setChatId(null)
+      setItems([])
       setView('setup')
     } finally {
       setSaving(false)
     }
   }
 
+  const update = (itemKey: string, change: (item: ChatItem) => ChatItem) =>
+    setItems((list) => list.map((item) => (item.key === itemKey ? change(item) : item)))
+  const remove = (itemKey: string) => setItems((list) => list.filter((item) => item.key !== itemKey))
+  const refreshConversations = () => listConversations().then(setConversations).catch(() => {})
+
   async function ask(question: string) {
     const q = question.trim()
-    if (!q || thinking) return
+    if (!q || streaming) return
     setInput('')
-    setMessages((m) => [...m, { role: 'user', text: q }])
-    setThinking(true)
+    const answerKey = key()
+    setItems((list) => [
+      ...list.filter((item) => item.role !== 'error'),
+      { key: key(), role: 'user', text: q },
+      { key: answerKey, role: 'assistant', text: '', streaming: true },
+    ])
+    setStreaming(true)
+    const controller = new AbortController()
+    abortRef.current = controller
     try {
-      const res = await askAi(q)
-      setQuota(res.quota)
-      setMessages((m) => [...m, { role: 'assistant', text: res.answer, links: res.links }])
+      let id = chatId
+      if (id === null) {
+        id = (await createConversation()).id
+        setChatId(id)
+      }
+      const result = await streamMessage(id, q, {
+        signal: controller.signal,
+        onDelta: (text) => update(answerKey, (a) => ({ ...a, text: a.text + text })),
+      })
+      if (result.kind === 'done') {
+        update(answerKey, (a) => ({ ...a, id: result.done.answerId, status: 'COMPLETE', streaming: false }))
+        setQuota(result.done.quota)
+      } else if (result.kind === 'stopped') {
+        update(answerKey, (a) => ({ ...a, status: 'PARTIAL', streaming: false }))
+        getAiQuota().then(setQuota).catch(() => {})
+      } else {
+        const { message, counted, answerId } = result.error
+        if (answerId !== null) update(answerKey, (a) => ({ ...a, id: answerId, status: 'PARTIAL', streaming: false }))
+        else remove(answerKey)
+        setItems((list) => [...list, { key: key(), role: 'error', text: message, retry: counted ? undefined : q }])
+      }
+      refreshConversations()
     } catch (err) {
-      const rateLimited = err instanceof ApiError && err.status === 429
-      setMessages((m) => [...m, { role: 'error', text: err instanceof Error ? err.message : 'Something went wrong. Try again.', upgrade: rateLimited }])
+      // Refused before any answer started: 403, 409, 429, or the server couldn't be reached.
+      remove(answerKey)
+      const status = err instanceof ApiError ? err.status : 0
+      setItems((list) => [
+        ...list,
+        {
+          key: key(),
+          role: 'error',
+          text: err instanceof Error ? err.message : 'Something went wrong. Try again.',
+          upgrade: status === 429,
+          retry: status === 0 || status >= 500 ? q : undefined,
+        },
+      ])
     } finally {
-      setThinking(false)
+      abortRef.current = null
+      setStreaming(false)
       inputRef.current?.focus()
+    }
+  }
+
+  function stop() {
+    abortRef.current?.abort()
+  }
+
+  function newChat() {
+    if (streaming) return
+    setChatId(null)
+    setItems([])
+    setView('chat')
+  }
+
+  async function openConversation(c: AiConversation) {
+    if (streaming) return
+    setChatId(c.id)
+    setItems([])
+    setView('chat')
+    setLoadingChat(true)
+    try {
+      setItems((await getMessages(c.id)).map(toItem))
+    } catch (err) {
+      setItems([{ key: key(), role: 'error', text: err instanceof Error ? err.message : 'Could not open this chat.' }])
+    } finally {
+      setLoadingChat(false)
+    }
+  }
+
+  async function saveTitle() {
+    if (!editing) return
+    const { id, title } = editing
+    setEditing(null)
+    if (!title.trim()) return
+    try {
+      const renamed = await renameConversation(id, title.trim())
+      setConversations((list) => list.map((c) => (c.id === id ? renamed : c)))
+    } catch {
+      // Keeps the old name; the list shows what the server has.
+    }
+  }
+
+  async function confirmDelete() {
+    if (!toDelete) return
+    const c = toDelete
+    setDeleteBusy(true)
+    setDeleteError(null)
+    try {
+      await deleteConversation(c.id)
+      setConversations((list) => list.filter((x) => x.id !== c.id))
+      if (chatId === c.id) {
+        setChatId(null)
+        setItems([])
+      }
+      setToDelete(null)
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : 'Could not delete this chat')
+    } finally {
+      setDeleteBusy(false)
+    }
+  }
+
+  function closeDeleteDialog() {
+    if (deleteBusy) return
+    setDeleteError(null)
+    setToDelete(null)
+  }
+
+  async function rate(item: ChatItem, rating: 1 | -1) {
+    if (!item.id) return
+    const previous = item.rating ?? null
+    update(item.key, (a) => ({ ...a, rating }))
+    try {
+      await rateMessage(item.id, rating)
+    } catch {
+      update(item.key, (a) => ({ ...a, rating: previous }))
     }
   }
 
@@ -174,8 +387,21 @@ export function AskAiPanel({ open, onClose }: Props) {
       aria-label="Ask AI"
     >
       <header className="flex h-16 shrink-0 items-center gap-2 border-b border-zinc-200 bg-white px-4 dark:border-zinc-800 dark:bg-zinc-900">
-        {view === 'chat' && (
+        {(view === 'chat' || view === 'history') && (
           <>
+            <button
+              onClick={() => setView(view === 'history' ? 'chat' : 'history')}
+              disabled={streaming}
+              className={cn(
+                '-ml-1.5 rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 disabled:opacity-40 dark:hover:bg-zinc-800 dark:hover:text-white',
+                view === 'history' && 'bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-white',
+              )}
+              aria-label="Your chats"
+              aria-pressed={view === 'history'}
+              title="Your chats"
+            >
+              <MessagesSquare className="size-4.5" />
+            </button>
             <Sparkles className="size-4.5 text-emerald-600 dark:text-emerald-400" aria-hidden />
             <h2 className="text-sm font-semibold">Ask AI</h2>
             <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 uppercase dark:bg-zinc-800 dark:text-zinc-400">
@@ -184,6 +410,17 @@ export function AskAiPanel({ open, onClose }: Props) {
           </>
         )}
         <div className="ml-auto flex items-center gap-1">
+          {(view === 'chat' || view === 'history') && (
+            <button
+              onClick={newChat}
+              disabled={streaming}
+              className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 disabled:opacity-40 dark:hover:bg-zinc-800 dark:hover:text-white"
+              aria-label="New chat"
+              title="New chat"
+            >
+              <SquarePen className="size-4.5" />
+            </button>
+          )}
           {view === 'chat' && (
             <button
               onClick={() => setView('setup')}
@@ -217,7 +454,7 @@ export function AskAiPanel({ open, onClose }: Props) {
 
         {(view === 'setup' || view === 'review') && (
           <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-5 py-8">
-            <PulseMascot thinking={thinking} />
+            <PulseMascot thinking={streaming} />
             <div className="mt-6 w-full max-w-sm rounded-2xl border border-zinc-200 bg-white p-5 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
               {view === 'setup' ? (
                 <>
@@ -346,79 +583,175 @@ export function AskAiPanel({ open, onClose }: Props) {
           </div>
         )}
 
+        {view === 'history' && (
+          <div className="flex-1 overflow-y-auto p-3">
+            {conversations.length === 0 ? (
+              <p className="pt-10 text-center text-sm text-zinc-500 dark:text-zinc-400">No chats yet. Ask a question to start one.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {conversations.map((c) => (
+                  <li
+                    key={c.id}
+                    className={cn(
+                      'group flex items-center gap-1 rounded-xl border bg-white px-3 py-2 shadow-sm dark:bg-zinc-900',
+                      c.id === chatId ? 'border-emerald-500 dark:border-emerald-500/70' : 'border-zinc-200 dark:border-zinc-800',
+                    )}
+                  >
+                    {editing?.id === c.id ? (
+                      <input
+                        autoFocus
+                        value={editing.title}
+                        maxLength={100}
+                        onChange={(e) => setEditing({ id: c.id, title: e.target.value })}
+                        onBlur={saveTitle}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') saveTitle()
+                          if (e.key === 'Escape') setEditing(null)
+                        }}
+                        aria-label="Chat name"
+                        className="min-w-0 flex-1 rounded-md border border-zinc-300 bg-transparent px-2 py-1 text-sm outline-none focus:border-emerald-600 dark:border-zinc-700"
+                      />
+                    ) : (
+                      <button onClick={() => openConversation(c)} className="min-w-0 flex-1 text-left">
+                        <span className="block truncate text-sm font-medium">{c.title}</span>
+                        <span className="block text-xs text-zinc-500 dark:text-zinc-400">{formatDateTime(c.updatedAt)}</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setEditing({ id: c.id, title: c.title })}
+                      className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-white"
+                      aria-label={`Rename ${c.title}`}
+                    >
+                      <Pencil className="size-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setToDelete(c)}
+                      className="rounded-md p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                      aria-label={`Delete ${c.title}`}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
         {view === 'chat' && (
           <>
             <div ref={listRef} className="flex-1 space-y-4 overflow-y-auto p-4" aria-live="polite">
-              {messages.length === 0 && (
+              {loadingChat && (
+                <div className="flex justify-center pt-10 text-zinc-400">
+                  <Spinner />
+                </div>
+              )}
+              {!loadingChat && items.length === 0 && (
                 <div className="flex flex-col items-center pt-6">
-                  <PulseMascot thinking={thinking} />
+                  <PulseMascot thinking={streaming} />
                   <p className="mt-5 text-center text-base font-semibold">What do you want to know?</p>
                   <p className="mt-1 text-center text-sm text-zinc-500 dark:text-zinc-400">Answers use {scopeLabel.toLowerCase()} you gave access to.</p>
                   <div className="mt-5 flex w-full flex-col gap-2">
-                    {suggestions.map((s) => (
+                    {suggestions.map((q) => (
                       <button
-                        key={s}
-                        onClick={() => ask(s)}
+                        key={q}
+                        onClick={() => ask(q)}
                         className="rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 text-left text-sm text-zinc-700 shadow-sm hover:border-emerald-300 hover:bg-emerald-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-emerald-500/40 dark:hover:bg-emerald-500/10"
                       >
-                        {s}
+                        {q}
                       </button>
                     ))}
                   </div>
                 </div>
               )}
 
-              {messages.map((m, i) =>
-                m.role === 'user' ? (
-                  <div key={i} className="flex justify-end">
-                    <p className="max-w-[85%] rounded-2xl rounded-br-md bg-emerald-600 px-3.5 py-2 text-sm whitespace-pre-wrap text-white shadow-sm">{m.text}</p>
-                  </div>
-                ) : (
-                  <div
-                    key={i}
-                    className={cn(
-                      'max-w-[92%] rounded-2xl rounded-bl-md border px-3.5 py-2.5 text-sm shadow-sm',
-                      m.role === 'error'
-                        ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200'
-                        : 'border-zinc-200 bg-white text-zinc-800 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100',
-                    )}
-                  >
-                    <RichText text={m.text} />
-                    {m.upgrade && (
-                      <Link to="/billing" onClick={onClose} className="mt-2 inline-block font-medium underline underline-offset-2">
-                        Upgrade for more questions
-                      </Link>
-                    )}
-                    {!!m.links?.length && (
-                      <div className="mt-2.5 flex flex-wrap gap-2">
-                        {m.links.map((l) => (
-                          <Link
-                            key={l.to}
-                            to={l.to}
-                            className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:hover:bg-zinc-800"
-                          >
-                            {l.label}
-                          </Link>
+              {items.map((m) => {
+                if (m.role === 'user') {
+                  return (
+                    <div key={m.key} className="flex justify-end">
+                      <p className="max-w-[85%] rounded-2xl rounded-br-md bg-emerald-600 px-3.5 py-2 text-sm whitespace-pre-wrap text-white shadow-sm">{m.text}</p>
+                    </div>
+                  )
+                }
+                if (m.role === 'assistant' && m.streaming && !m.text) {
+                  return (
+                    <div key={m.key} className="flex items-end gap-1" aria-label="Thinking">
+                      {/* A half-size mascot, glancing around while the answer is on its way. */}
+                      <div className="-mb-2 -ml-6 h-16 w-24 shrink-0">
+                        <PulseMascot thinking className="origin-top-left scale-50" />
+                      </div>
+                      <div className="-ml-4 mb-3 flex items-center gap-1 rounded-2xl rounded-bl-md border border-zinc-200 bg-white px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-900">
+                        {[0, 150, 300].map((d) => (
+                          <span key={d} className="size-1.5 animate-bounce rounded-full bg-zinc-400" style={{ animationDelay: `${d}ms` }} />
                         ))}
+                      </div>
+                    </div>
+                  )
+                }
+                if (m.role === 'error') {
+                  return (
+                    <div
+                      key={m.key}
+                      className="max-w-[92%] rounded-2xl rounded-bl-md border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-800 shadow-sm dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200"
+                    >
+                      <p>{m.text}</p>
+                      {m.upgrade && (
+                        <Link to="/billing" onClick={onClose} className="mt-2 inline-block font-medium underline underline-offset-2">
+                          Upgrade for more questions
+                        </Link>
+                      )}
+                      {m.retry && (
+                        <button
+                          onClick={() => ask(m.retry!)}
+                          disabled={streaming}
+                          className="mt-2 inline-flex items-center gap-1.5 font-medium underline underline-offset-2 disabled:opacity-50"
+                        >
+                          <RotateCcw className="size-3.5" aria-hidden />
+                          Try again
+                        </button>
+                      )}
+                    </div>
+                  )
+                }
+                const failed = m.status === 'FAILED'
+                const stopped = m.status === 'PARTIAL'
+                return (
+                  <div
+                    key={m.key}
+                    className="max-w-[92%] rounded-2xl rounded-bl-md border border-zinc-200 bg-white px-3.5 py-2.5 text-sm text-zinc-800 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+                  >
+                    {failed ? (
+                      <p className="text-zinc-500 italic dark:text-zinc-400">No answer: Ask AI couldn't reply to this one.</p>
+                    ) : m.text ? (
+                      <RichText text={m.text} />
+                    ) : (
+                      <p className="text-zinc-500 italic dark:text-zinc-400">Stopped before answering.</p>
+                    )}
+                    {stopped && m.text && <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">Stopped</p>}
+                    {!m.streaming && !failed && m.id !== undefined && m.text && (
+                      <div className="mt-2 flex gap-1">
+                        {([1, -1] as const).map((r) => {
+                          const Icon = r === 1 ? ThumbsUp : ThumbsDown
+                          return (
+                            <button
+                              key={r}
+                              onClick={() => rate(m, r)}
+                              aria-label={r === 1 ? 'Good answer' : 'Bad answer'}
+                              aria-pressed={m.rating === r}
+                              className={cn(
+                                'rounded-md p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800',
+                                m.rating === r ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400',
+                              )}
+                            >
+                              <Icon className="size-3.5" fill={m.rating === r ? 'currentColor' : 'none'} />
+                            </button>
+                          )
+                        })}
                       </div>
                     )}
                   </div>
-                ),
-              )}
-
-              {thinking && (
-                <div className="flex items-end gap-1" aria-label="Thinking">
-                  {/* A half-size mascot, glancing around while the answer is on its way. */}
-                  <div className="-mb-2 -ml-6 h-16 w-24 shrink-0">
-                    <PulseMascot thinking className="origin-top-left scale-50" />
-                  </div>
-                  <div className="-ml-4 mb-3 flex items-center gap-1 rounded-2xl rounded-bl-md border border-zinc-200 bg-white px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-900">
-                    {[0, 150, 300].map((d) => (
-                      <span key={d} className="size-1.5 animate-bounce rounded-full bg-zinc-400" style={{ animationDelay: `${d}ms` }} />
-                    ))}
-                  </div>
-                </div>
-              )}
+                )
+              })}
             </div>
 
             <form onSubmit={onSubmit} className="shrink-0 p-3">
@@ -430,27 +763,63 @@ export function AskAiPanel({ open, onClose }: Props) {
                   onKeyDown={onKeyDown}
                   rows={1}
                   maxLength={500}
-                  placeholder="Ask a question…"
+                  placeholder={chatId === null ? 'Ask a question…' : 'Ask a follow-up…'}
                   aria-label="Your question"
                   className="max-h-32 min-h-9 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-zinc-400"
                 />
-                <button
-                  type="submit"
-                  disabled={!input.trim() || thinking || remaining === 0}
-                  className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40"
-                  aria-label="Send"
-                >
-                  <ArrowUp className="size-4" />
-                </button>
+                {streaming ? (
+                  <button
+                    type="button"
+                    onClick={stop}
+                    className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-zinc-900 text-white hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
+                    aria-label="Stop"
+                    title="Stop"
+                  >
+                    <Square className="size-3.5" fill="currentColor" />
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={!input.trim() || remaining === 0}
+                    className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40"
+                    aria-label="Send"
+                  >
+                    <ArrowUp className="size-4" />
+                  </button>
+                )}
               </div>
               <p className="mt-1.5 px-1 text-[11px] text-zinc-500 dark:text-zinc-400">
                 {scopeLabel} · {remaining === null ? 'unlimited questions' : `${remaining} of ${quota?.limit} questions left today`}. Answers
-                can be wrong — check the linked pages.
+                can be wrong — check the monitor pages.
               </p>
             </form>
           </>
         )}
       </div>
+
+      <Modal
+        open={!!toDelete}
+        onClose={closeDeleteDialog}
+        title="Delete chat?"
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeDeleteDialog} disabled={deleteBusy}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={confirmDelete} loading={deleteBusy}>
+              Delete
+            </Button>
+          </>
+        }
+      >
+        <strong className="font-medium text-zinc-900 dark:text-zinc-100">{toDelete?.title}</strong> and all of its
+        messages will be permanently removed.
+        {deleteError && (
+          <p className="mt-3 text-red-600 dark:text-red-400" role="alert">
+            {deleteError}
+          </p>
+        )}
+      </Modal>
     </aside>,
     document.body,
   )

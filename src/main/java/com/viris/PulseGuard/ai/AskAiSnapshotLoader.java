@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -103,6 +104,20 @@ public class AskAiSnapshotLoader {
 
         return new AskAiSnapshot(now, zone, monitors, shared.size() - included.size(),
                 all.size() - shared.size(), incidents);
+    }
+
+    private static final ZoneId UTC = ZoneId.of("UTC");
+
+    /** The browser's IANA time zone, or UTC when it's missing or not a real zone. */
+    public static ZoneId zone(String timeZone) {
+        if (timeZone == null || timeZone.isBlank()) {
+            return UTC;
+        }
+        try {
+            return ZoneId.of(timeZone);
+        } catch (DateTimeException e) {
+            return UTC;
+        }
     }
 
     private static boolean healthy(Monitor monitor) {

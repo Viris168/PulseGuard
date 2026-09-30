@@ -14,7 +14,9 @@ import java.time.Duration;
  * @param openSummaryTtl        how long an open incident's summary is served before it is rewritten
  *                              with the checks that came in since. A resolved incident's summary never expires.
  * @param timeout               the longest a request waits for the model, whichever provider is
- *                              configured; after it the caller gets the fallback or an error.
+ *                              configured: the whole answer for {@code call}, the first piece for {@code stream}.
+ * @param streamTimeout         the longest a streamed answer may take from start to finish, so a
+ *                              provider that trickles text forever can't hold a connection open.
  * @param fairUseDailyQuestions the Ask AI cap for plans sold as unlimited: every question costs
  *                              money, so "unlimited" still stops a script from running up the bill.
  */
@@ -22,5 +24,6 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "pulseguard.ai")
 public record AiProperties(@NotNull Duration openSummaryTtl,
                            @NotNull Duration timeout,
+                           @NotNull Duration streamTimeout,
                            @Min(1) int fairUseDailyQuestions) {
 }

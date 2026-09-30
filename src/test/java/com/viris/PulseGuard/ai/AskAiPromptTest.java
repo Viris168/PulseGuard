@@ -3,8 +3,6 @@ package com.viris.PulseGuard.ai;
 import com.viris.PulseGuard.enumeration.MonitorState;
 import com.viris.PulseGuard.enumeration.MonitorType;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.chat.messages.MessageType;
-import org.springframework.ai.chat.prompt.Prompt;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -18,17 +16,6 @@ class AskAiPromptTest {
 
     private static final Instant NOW = Instant.parse("2026-09-29T09:40:00Z");
     private static final ZoneId BANGKOK = ZoneId.of("Asia/Bangkok");
-
-    @Test
-    void sendsTheRulesAsSystemMessageAndDataPlusQuestionAsUserMessage() {
-        Prompt prompt = AskAiPrompt.build("  Is anything down?  ", snapshot(List.of(shop()), List.of(), 0));
-
-        assertThat(prompt.getInstructions()).hasSize(2);
-        assertThat(prompt.getInstructions().get(0).getMessageType()).isEqualTo(MessageType.SYSTEM);
-        assertThat(prompt.getInstructions().get(0).getText()).isEqualTo(AskAiPrompt.SYSTEM);
-        assertThat(prompt.getInstructions().get(1).getText())
-                .startsWith("<data>").endsWith("</data>\n\nQuestion: Is anything down?");
-    }
 
     @Test
     void describesEachMonitorsStatusAndFigures() {

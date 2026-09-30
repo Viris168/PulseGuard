@@ -1,5 +1,9 @@
 package com.viris.PulseGuard.stats;
 
+import com.viris.PulseGuard.ai.chat.AiConversation;
+import com.viris.PulseGuard.ai.chat.AiConversationRepository;
+import com.viris.PulseGuard.ai.chat.AiMessage;
+import com.viris.PulseGuard.ai.chat.AiMessageRepository;
 import com.viris.PulseGuard.auth.User;
 import com.viris.PulseGuard.auth.UserRepository;
 import com.viris.PulseGuard.auth.security.InMemoryLoginRateLimiter;
@@ -7,6 +11,8 @@ import com.viris.PulseGuard.auth.security.InMemoryTokenDenylist;
 import com.viris.PulseGuard.auth.security.LoginRateLimiter;
 import com.viris.PulseGuard.auth.security.TokenDenylist;
 import com.viris.PulseGuard.check.CheckRepository;
+import com.viris.PulseGuard.enumeration.MessageRole;
+import com.viris.PulseGuard.enumeration.MessageStatus;
 import com.viris.PulseGuard.enumeration.Plan;
 import com.viris.PulseGuard.incident.IncidentQueryService;
 import com.viris.PulseGuard.monitor.Monitor;
@@ -76,6 +82,10 @@ class HousekeepingIntegrationTest {
     private static final LocalDate TODAY = LocalDate.of(2026, 9, 28);
 
     @Autowired
+    AiConversationRepository aiConversations;
+    @Autowired
+    AiMessageRepository aiMessages;
+    @Autowired
     JdbcTemplate jdbc;
     @Autowired
     UserRepository users;
@@ -135,6 +145,13 @@ class HousekeepingIntegrationTest {
     private void ping(Monitor monitor, Instant at) {
         jdbc.update("insert into pings (monitor_id, received_at, source_ip) values (?, ?, '203.0.113.7')",
                 monitor.getId(), Timestamp.from(at));
+    }
+
+    /** A chat last used at {@code updatedAt}. */
+    private AiConversation chat(User owner, Instant updatedAt) {
+        AiConversation conversation = new AiConversation(owner, "Chat");
+        conversation.setUpdatedAt(updatedAt);
+        return aiConversations.save(conversation);
     }
 
     private static Instant daysAgo(int days) {
@@ -263,6 +280,24 @@ class HousekeepingIntegrationTest {
         assertThat(jdbc.queryForObject("select count(*) from pings where monitor_id = ?", Long.class, pro.getId()))
                 .isEqualTo(2);
         assertThat(result.pings()).isEqualTo(3);
+    }
+
+    @Test
+    void askAiChatsNotUsedWithinThePlansHistoryAreDeleted() {
+        User free = user("free@example.com", Plan.FREE);
+        User pro = user("pro@example.com", Plan.PRO);
+        AiConversation oldFree = chat(free, daysAgo(8));
+        AiConversation recentFree = chat(free, daysAgo(2));
+        AiConversation oldPro = chat(pro, daysAgo(8));
+        AiMessage oldMessage = aiMessages.save(new AiMessage(oldFree, MessageRole.USER, "Is Health down?", MessageStatus.COMPLETE));
+
+        RetentionService.Result result = housekeeping.run(NOW);
+
+        assertThat(aiConversations.findById(oldFree.getId())).isEmpty();
+        assertThat(aiMessages.findById(oldMessage.getId())).isEmpty(); // messages go with their chat
+        assertThat(aiConversations.findById(recentFree.getId())).isPresent();
+        assertThat(aiConversations.findById(oldPro.getId())).isPresent(); // Pro keeps 90 days
+        assertThat(result.conversations()).isEqualTo(1);
     }
 
     @Test

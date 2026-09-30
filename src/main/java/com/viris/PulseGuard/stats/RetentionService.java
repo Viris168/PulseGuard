@@ -1,5 +1,6 @@
 package com.viris.PulseGuard.stats;
 
+import com.viris.PulseGuard.ai.chat.AiConversationRepository;
 import com.viris.PulseGuard.billing.PlanLimits;
 import com.viris.PulseGuard.check.CheckRepository;
 import com.viris.PulseGuard.enumeration.Plan;
@@ -28,12 +29,13 @@ public class RetentionService {
 
     private static final Logger log = LoggerFactory.getLogger(RetentionService.class);
 
-    public record Result(long checks, long pings, long summaries) {
+    public record Result(long checks, long pings, long summaries, long conversations) {
     }
 
     private final CheckRepository checkRepository;
     private final PingRepository pingRepository;
     private final CheckDailyStatRepository dailyStatRepository;
+    private final AiConversationRepository conversationRepository;
     private final PlanLimits planLimits;
     private final HousekeepingProperties properties;
     private final TransactionTemplate tx;
@@ -41,12 +43,14 @@ public class RetentionService {
     public RetentionService(CheckRepository checkRepository,
                             PingRepository pingRepository,
                             CheckDailyStatRepository dailyStatRepository,
+                            AiConversationRepository conversationRepository,
                             PlanLimits planLimits,
                             HousekeepingProperties properties,
                             PlatformTransactionManager transactionManager) {
         this.checkRepository = checkRepository;
         this.pingRepository = pingRepository;
         this.dailyStatRepository = dailyStatRepository;
+        this.conversationRepository = conversationRepository;
         this.planLimits = planLimits;
         this.properties = properties;
         this.tx = new TransactionTemplate(transactionManager);
@@ -62,6 +66,7 @@ public class RetentionService {
         long checks = 0;
         long pings = 0;
         long summaries = 0;
+        long conversations = 0;
 
         for (Plan plan : Plan.values()) {
             int historyDays = planLimits.retentionDays(plan);
@@ -75,10 +80,15 @@ public class RetentionService {
             LocalDate summaryCutoff = today.minusDays(historyDays);
             Integer deleted = tx.execute(status -> dailyStatRepository.deleteForPlanBefore(plan.name(), summaryCutoff));
             summaries += deleted == null ? 0 : deleted;
+            // Ask AI chats not used within the plan's history: the same promise as check history.
+            Instant chatCutoff = now.minus(Duration.ofDays(historyDays));
+            conversations += inBatches(() ->
+                    conversationRepository.deleteBatchForPlanBefore(plan.name(), chatCutoff, properties.batchSize()));
         }
 
-        log.info("Retention deleted {} check(s), {} ping(s), {} daily summary row(s)", checks, pings, summaries);
-        return new Result(checks, pings, summaries);
+        log.info("Retention deleted {} check(s), {} ping(s), {} daily summary row(s), {} Ask AI chat(s)",
+                checks, pings, summaries, conversations);
+        return new Result(checks, pings, summaries, conversations);
     }
 
     /** Deletes one batch per transaction until a batch comes back short. */

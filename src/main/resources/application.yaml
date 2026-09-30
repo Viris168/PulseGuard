@@ -197,6 +197,9 @@ pulseguard:
     # A summary is waited on by a page view: past this, the page shows its rule-based summary.
     # Enforced here for every provider, since not all of them expose a client timeout.
     timeout: ${PULSEGUARD_AI_TIMEOUT:20s}
+    # Ask AI chat: the longest one streamed answer may take in total (the first words must still
+    # arrive within the timeout above).
+    stream-timeout: ${PULSEGUARD_AI_STREAM_TIMEOUT:90s}
     # Ask AI questions per day on plans sold as unlimited (Business). Free and Pro limits are in PlanLimits.
     fair-use-daily-questions: ${PULSEGUARD_AI_FAIR_USE_DAILY_QUESTIONS:500}
   stripe:

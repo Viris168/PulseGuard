@@ -2,9 +2,6 @@ package com.viris.PulseGuard.ai;
 
 import com.viris.PulseGuard.enumeration.MonitorType;
 import com.viris.PulseGuard.notification.AlertMessageFactory;
-import org.springframework.ai.chat.messages.SystemMessage;
-import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.ai.chat.prompt.Prompt;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -14,19 +11,20 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Turns a question and an {@link AskAiSnapshot} into the prompt. Pure, no I/O.
+ * Ask AI's rules and an {@link AskAiSnapshot} written out as the prompt's {@code <data>}; the chat
+ * (ai/chat/ChatPrompt) puts them together with the conversation. Pure, no I/O.
  *
  * <p>Only what answers need reaches the provider: names, states and figures. No URLs (they can
  * carry credentials in the query string), headers, ping tokens or alert targets. Names and error
  * text are fenced into {@code <data>} with {@link PromptText}; the model is told never to take
  * instructions from it.
  */
-final class AskAiPrompt {
+public final class AskAiPrompt {
 
     static final int MAX_ERROR_LENGTH = 200;
     static final int MAX_NAME_LENGTH = 100;
 
-    static final String SYSTEM = """
+    public static final String SYSTEM = """
             You are Ask AI inside PulseGuard, an uptime monitoring service. You answer the account \
             owner's questions about their monitors, uptime, response times and incidents, and general \
             questions about HTTP, APIs and monitoring.
@@ -51,12 +49,7 @@ final class AskAiPrompt {
     private AskAiPrompt() {
     }
 
-    static Prompt build(String question, AskAiSnapshot snapshot) {
-        return new Prompt(List.of(new SystemMessage(SYSTEM),
-                new UserMessage(facts(snapshot) + "\n\nQuestion: " + question.strip())));
-    }
-
-    static String facts(AskAiSnapshot s) {
+    public static String facts(AskAiSnapshot s) {
         List<String> lines = new ArrayList<>();
         lines.add("Now: " + when(s.now(), s) + " (" + s.zone().getId() + ")");
 
