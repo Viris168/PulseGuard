@@ -67,8 +67,9 @@ When you move to a smaller plan, PulseGuard brings your account within its limit
 
 - **Faster monitors are slowed down** to the new plan's fastest interval. Heartbeat monitors are
   left alone.
-- **Alert channels the plan doesn't include are switched off**, not deleted, so an upgrade
-  turns them back on. Your email channel keeps working.
+- **Alert channels the plan doesn't include are switched off**, not deleted. After upgrading
+  again, switch them back on under **Settings → Alert channels**. Your email channel keeps
+  working.
 - **Monitors over the new limit keep running.** You just can't add more until you're under the
   limit. The Billing page shows how many you have against the new plan's limit.
 - **History beyond the new plan's limit is deleted** at the next nightly clean-up.

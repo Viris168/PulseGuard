@@ -107,7 +107,92 @@ class HelpDocsFactsTest {
         labels.forEach(l -> assertThat(doc).as("getting-started explains '%s'", l).contains("- **" + l + "**: "));
     }
 
+    @Test
+    void httpMonitorLimitsMatchTheValidator() throws IOException {
+        String validator = source("monitor/dto/MonitorRequestValidator.java");
+        String doc = flat(article("http-monitors"));
+        assertThat(doc).contains("list up to " + constant(validator, "MAX_STATUSES") + " codes")
+                .contains("up to " + constant(validator, "MAX_HEADERS") + " request headers")
+                .contains("up to " + thousands(constant(validator, "MAX_HEADER_VALUE")) + " characters, on one line")
+                .contains("up to " + thousands(constant(validator, "MAX_BODY")) + " characters");
+        assertThat(validator).contains("\"Timeout must not exceed 30000 ms\"").contains("\"Timeout must be at least 1000 ms\"");
+        assertThat(doc).contains("from 1 to 30 seconds");
+        assertThat(flat(article("status-codes"))).contains("You can list up to " + constant(validator, "MAX_STATUSES") + ".");
+    }
+
+    @Test
+    void theUserAgentInTheDocsIsTheOneChecksSend() throws IOException {
+        String userAgent = find(Files.readString(Path.of(".env.example")), "PULSEGUARD_CHECK_USER_AGENT=(.+)").strip();
+        for (String slug : List.of("http-monitors", "troubleshooting-checks", "status-codes")) {
+            assertThat(flat(article(slug))).as(slug).contains(userAgent);
+        }
+    }
+
+    @Test
+    void alertAndAccountNumbersMatchTheCode() throws IOException {
+        String yaml = Files.readString(Path.of("src/main/resources/application.yaml"));
+        assertThat(find(yaml, "backoff: \\$\\{PULSEGUARD_ALERT_RETRY_BACKOFF:([^}]+)}")).isEqualTo("1m,5m,30m");
+        assertThat(flat(article("alert-delivery"))).contains("3 more times: after 1 minute, 5 minutes and 30 minutes");
+
+        String verify = find(yaml, "verify-token-ttl: \\$\\{PULSEGUARD_EMAIL_VERIFY_TTL:([^}]+)}");
+        String reset = find(yaml, "reset-token-ttl: \\$\\{PULSEGUARD_PASSWORD_RESET_TTL:([^}]+)}");
+        assertThat(verify).isEqualTo("24h");
+        assertThat(reset).isEqualTo("30m");
+        assertThat(flat(article("email-alerts"))).contains("The link works for 24 hours")
+                .contains("up to " + constant(source("notification/ChannelService.java"), "MAX_CHANNELS") + " alert channels");
+        assertThat(flat(article("account"))).contains("it works for 24 hours").contains("works for **30 minutes**")
+                .contains("8 to 72 characters");
+        assertThat(source("auth/dto/ChangePasswordRequest.java")).contains("@Size(min = 8, max = 72");
+
+        String keys = flat(article("api-keys"));
+        assertThat(keys).contains("up to " + constant(source("apikey/ApiKeyService.java"), "MAX_KEYS") + " keys")
+                .contains("(up to 50 characters)");
+        assertThat(source("apikey/dto/ApiKeyRequest.java")).contains("@Size(max = 50");
+    }
+
+    @Test
+    void statusPageAndHeartbeatNumbersMatchTheCode() throws IOException {
+        String request = source("statuspage/dto/StatusPageRequest.java");
+        assertThat(request).contains("@Size(max = 80").contains("@Size(max = 280").contains("@Size(max = 100");
+        String publicPage = source("statuspage/PublicStatusPageService.java");
+        assertThat(publicPage).contains("MAX_HISTORY_DAYS = 90").contains("INCIDENT_WINDOW = Duration.ofDays(14)");
+        assertThat(flat(article("status-pages"))).contains("(up to 80 characters)").contains("(up to 280)")
+                .contains("Up to 100 monitors").contains("last 14 days").contains("up to 90 days");
+
+        assertThat(source("heartbeat/HeartbeatService.java")).contains("MIN_SPACING = Duration.ofSeconds(10)");
+        assertThat(flat(article("heartbeat-monitors"))).contains("less than 10 seconds apart");
+    }
+
+    @Test
+    void askAiLimitsMatchTheCode() throws IOException {
+        String doc = flat(article("ask-ai"));
+        for (Plan plan : Plan.values()) {
+            int questions = limits.aiDailyQuestions(plan);
+            String name = plan.name().charAt(0) + plan.name().substring(1).toLowerCase(Locale.ROOT);
+            assertThat(doc).as(plan.name()).contains("| " + name + " | "
+                    + (questions == PlanLimits.UNLIMITED ? "Unlimited" : String.valueOf(questions)));
+        }
+        String yaml = Files.readString(Path.of("src/main/resources/application.yaml"));
+        assertThat(doc).contains("at most " + find(yaml, "max-tool-calls: \\$\\{PULSEGUARD_AI_MAX_TOOL_CALLS:(\\d+)}")
+                + " lookups per question");
+        assertThat(doc).contains("up to " + find(source("ai/chat/ChatService.java"), "MAX_MESSAGES = (\\d+)") + " messages");
+    }
+
     // ─── helpers ─────────────────────────────────────────────────────────────
+
+    private static String source(String path) throws IOException {
+        return Files.readString(Path.of("src/main/java/com/viris/PulseGuard/" + path));
+    }
+
+    /** A {@code static final int NAME = 10_000;} constant's value. */
+    private static int constant(String source, String name) {
+        return Integer.parseInt(find(source, name + " = ([\\d_]+);").replace("_", ""));
+    }
+
+    /** 2000 → "2,000", as the docs write numbers. */
+    private static String thousands(int n) {
+        return String.format(Locale.ROOT, "%,d", n);
+    }
 
     private static String article(String slug) throws IOException {
         return new PathMatchingResourcePatternResolver().getResource("classpath:help/" + slug + ".md")
