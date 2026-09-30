@@ -106,7 +106,13 @@ handling with no chat UI.
 - `GET /api/incidents/{id}/summary`, scoped by `userId`. Replace `summarizeIncident` mock.
 - Tests: mocked `ChatModel`; fallback path; tenant scope.
 
-### Milestone 1: Core chat (1–1.5 weeks)
+### Milestone 1: Core chat (1–1.5 weeks) 🟡 Built, trying it for real
+
+Built as planned in `AI_MILESTONE_1.md` (Steps 1–7): saved conversations, answers streamed word
+by word with Stop, follow-ups with trimmed history, thumbs up/down, chat retention by plan. The
+one-shot `POST /api/ai/ask` is gone; the panel uses the chat. Left: Step 8, trying it with a real
+model locally and after deploying.
+
 
 > **Superseded by `AI_MILESTONE_1.md`**, which plans it on top of what Ask AI (option B) already
 > built: access, quota, session-only security and the snapshot are done, so the list below is history.
