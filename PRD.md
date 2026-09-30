@@ -74,17 +74,26 @@ Teams and solo developers running APIs, websites, or backend services often disc
 
 ### 2.8 Subscription & Billing
 - Stripe integration for subscription management
-- Tiers gate: number of monitors, minimum polling interval, alert channels, history retention
+- Tiers gate: number of monitors, minimum polling interval, alert channels, history retention, Ask AI questions per day
 - Stripe-hosted Customer Portal for upgrade/downgrade/cancel
 - Webhook listener to sync subscription state into the app's database
 
 **Proposed Tiers:**
 
-| Tier | Price | Monitors | Min Interval | Alerts | History |
-|---|---|---|---|---|---|
-| Free | $0 | 3 | 5 min | Email | 7 days |
-| Pro | $9–15/mo | 25 | 1 min | Email + Slack | 90 days |
-| Business | $30–50/mo | Unlimited | 1 min | Email + Slack (SMS later) | 1 year |
+| Tier | Price | Monitors | Min Interval | Alerts | History | Ask AI |
+|---|---|---|---|---|---|---|
+| Free | $0 | 3 | 5 min | Email | 7 days | 5 questions/day |
+| Pro | $9–15/mo | 25 | 1 min | Email + Slack | 90 days | 100 questions/day |
+| Business | $30–50/mo | Unlimited | 1 min | Email + Slack (SMS later) | 1 year | Unlimited (fair use: 500/day) |
+
+
+### 2.9 AI Assistance
+- **Incident summary:** each incident page gets a short plain-language summary of what happened; if AI is off or fails, a rule-based summary is shown instead
+- **Ask AI:** a chat panel that answers questions about the user's own monitors ("Why did Health go down?", "Uptime in the last 30 days?"). It looks up figures, incidents and failed checks on demand, shows what it looked up, and never changes anything
+- Opt-in: the user chooses which monitors Ask AI may read; it never sees URLs, headers or alert targets
+- "Ask AI" buttons on monitor and incident pages start a chat about that page
+- Questions per day are limited by plan; chats are kept for the plan's history period
+- Provider is configurable (Google Gemini or Anthropic Claude); AI is off unless configured
 
 ---
 
@@ -96,6 +105,7 @@ Teams and solo developers running APIs, websites, or backend services often disc
 - As a user, I want a single failed check to *not* trigger a false alarm, so I'm not spammed by transient network blips.
 - As a user, I want to upgrade to a paid plan so I can monitor more endpoints more frequently.
 - As a free-tier user, I want to understand what I'd gain by upgrading, so I can decide whether to subscribe.
+- As a user, I want to ask in plain words why a monitor failed or how it did last month, and see which records the answer came from, so I don't have to dig through check logs.
 
 ---
 
@@ -160,6 +170,7 @@ Teams and solo developers running APIs, websites, or backend services often disc
 | M5 | Dashboard UI |
 | M6 | Stripe subscription integration + plan gating |
 | M7 (stretch) | Public status page, Slack alerts |
+| M8 | AI: incident summaries, Ask AI chat with lookups (see `AI_PLAN.md`) |
 
 ---
 
