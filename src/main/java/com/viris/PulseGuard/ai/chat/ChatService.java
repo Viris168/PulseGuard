@@ -7,13 +7,27 @@ import com.viris.PulseGuard.ai.AiQuotaPolicy;
 import com.viris.PulseGuard.ai.AskAiSnapshot;
 import com.viris.PulseGuard.ai.AskAiSnapshotLoader;
 import com.viris.PulseGuard.ai.ModelCaller;
+import com.viris.PulseGuard.ai.tools.MonitorTools;
+import com.viris.PulseGuard.ai.tools.ToolGuard;
+import com.viris.PulseGuard.ai.tools.ToolRun;
+import com.viris.PulseGuard.ai.tools.ToolScope;
+import com.viris.PulseGuard.auth.UserRepository;
+import com.viris.PulseGuard.billing.PlanLimits;
 import com.viris.PulseGuard.common.exception.AiRuleException;
 import com.viris.PulseGuard.common.exception.ChatNotFoundException;
+import com.viris.PulseGuard.monitor.Monitor;
+import com.viris.PulseGuard.monitor.MonitorRepository;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.support.ToolCallbacks;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Sending a chat message. Every check runs before the stream opens, so a refusal reaches the
@@ -36,10 +50,19 @@ public class ChatService {
     private final AiQuotaPolicy quota;
     private final ModelCaller modelCaller;
     private final AiProperties properties;
+    private final MonitorRepository monitors;
+    private final UserRepository users;
+    private final PlanLimits planLimits;
+    private final ToolGuard toolGuard;
+    private final ChatContextLoader contextLoader;
+    /** The tools as the model sees them; stateless, so built once. Each message guards them anew. */
+    private final List<ToolCallback> tools;
 
     public ChatService(AiConversationRepository conversations, AiMessageRepository messages,
                        AiAccessRepository accessRepository, AskAiSnapshotLoader snapshotLoader,
-                       ChatMessageStore store, AiQuotaPolicy quota, ModelCaller modelCaller, AiProperties properties) {
+                       ChatMessageStore store, AiQuotaPolicy quota, ModelCaller modelCaller, AiProperties properties,
+                       MonitorRepository monitors, UserRepository users, PlanLimits planLimits,
+                       ToolGuard toolGuard, MonitorTools monitorTools, ChatContextLoader contextLoader) {
         this.conversations = conversations;
         this.messages = messages;
         this.accessRepository = accessRepository;
@@ -48,6 +71,12 @@ public class ChatService {
         this.quota = quota;
         this.modelCaller = modelCaller;
         this.properties = properties;
+        this.monitors = monitors;
+        this.users = users;
+        this.planLimits = planLimits;
+        this.toolGuard = toolGuard;
+        this.contextLoader = contextLoader;
+        this.tools = List.of(ToolCallbacks.from(monitorTools));
     }
 
     /**
@@ -55,7 +84,7 @@ public class ChatService {
      * sent to the model until {@link ChatTurn#start} is called.
      */
     public ChatTurn send(Long userId, Long conversationId, String question, String timeZone) {
-        conversations.findByIdAndUserId(conversationId, userId)
+        AiConversation chat = conversations.findByIdAndUserId(conversationId, userId)
                 .orElseThrow(() -> ChatNotFoundException.conversation(conversationId));
         AiAccess access = accessRepository.findById(userId).filter(AiAccess::isEnabled)
                 .orElseThrow(AiRuleException::disabled);
@@ -70,15 +99,32 @@ public class ChatService {
         try {
             // History first: it must not include the question saved just below.
             List<AiMessage> earlier = store.history(userId, conversationId);
-            AskAiSnapshot snapshot = snapshotLoader.load(userId, access, AskAiSnapshotLoader.zone(timeZone));
+            ZoneId zone = AskAiSnapshotLoader.zone(timeZone);
+            AskAiSnapshot snapshot = snapshotLoader.load(userId, access, zone);
             Long questionId = store.saveQuestion(userId, conversationId, question);
-            Prompt prompt = ChatPrompt.build(question, snapshot, earlier);
-            return new ChatTurn(modelCaller.stream(prompt, "chat conversationId=" + conversationId),
-                    store, quota, userId, conversationId, questionId);
+            String page = contextLoader.describe(chat, userId, access, zone, Instant.now()).orElse(null);
+            Prompt prompt = ChatPrompt.build(question, snapshot, earlier, page);
+            ToolRun run = toolGuard.start();
+            return new ChatTurn(modelCaller.stream(prompt, "chat conversationId=" + conversationId, run.guard(tools),
+                    scope(userId, access, zone).asToolContext()),
+                    store, quota, userId, conversationId, questionId, run);
         } catch (RuntimeException e) {
             quota.release(userId);
             throw e;
         }
+    }
+
+    /**
+     * What this message's tools may see, from the server's own records: the login, the monitors
+     * the user shared, the plan's history. Nothing here comes from the model or the request body.
+     */
+    private ToolScope scope(Long userId, AiAccess access, ZoneId zone) {
+        Set<Long> shared = monitors.findAllByUserId(userId).stream()
+                .map(Monitor::getId)
+                .filter(access::allows)
+                .collect(Collectors.toSet());
+        int historyDays = planLimits.retentionDays(users.findById(userId).orElseThrow().getPlan());
+        return new ToolScope(userId, shared, zone, historyDays, Instant.now());
     }
 
     /** How long the browser's connection may stay open: the whole answer's limit plus a margin. */

@@ -1,24 +1,33 @@
 package com.viris.PulseGuard.ai.chat;
 
+import com.viris.PulseGuard.ai.AiProperties;
 import com.viris.PulseGuard.ai.AiQuotaPolicy;
 import com.viris.PulseGuard.ai.ModelStreamEvent;
 import com.viris.PulseGuard.ai.ModelStreamException;
 import com.viris.PulseGuard.ai.chat.dto.ChatStreamEvents;
 import com.viris.PulseGuard.ai.dto.AiQuotaResponse;
+import com.viris.PulseGuard.ai.tools.ToolGuard;
+import com.viris.PulseGuard.ai.tools.ToolRun;
 import com.viris.PulseGuard.enumeration.MessageStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.definition.ToolDefinition;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -44,7 +53,7 @@ class ChatTurnTest {
 
     @BeforeEach
     void setUp() {
-        when(store.saveAnswer(any(), anyString(), any(), any())).thenReturn(101L);
+        when(store.saveAnswer(any(), anyString(), any(), any(), any())).thenReturn(101L);
         when(quota.status(USER)).thenReturn(QUOTA);
     }
 
@@ -56,7 +65,7 @@ class ChatTurnTest {
                 new ChatStreamEvents.Delta("Health is"),
                 new ChatStreamEvents.Delta(" down."),
                 new ChatStreamEvents.Done(QUESTION, 101L, MessageStatus.COMPLETE, QUOTA));
-        verify(store).saveAnswer(CHAT, "Health is down.", MessageStatus.COMPLETE, USAGE);
+        verify(store).saveAnswer(CHAT, "Health is down.", MessageStatus.COMPLETE, USAGE, List.of());
         assertThat(browser.closed).isTrue();
         verify(quota, never()).release(any());
     }
@@ -71,7 +80,7 @@ class ChatTurnTest {
         turn.stop();
         model.tryEmitNext(text(" server")); // arrives after Stop: dropped
 
-        verify(store).saveAnswer(CHAT, "It means the", MessageStatus.PARTIAL, null);
+        verify(store).saveAnswer(CHAT, "It means the", MessageStatus.PARTIAL, null, List.of());
         assertThat(cancelled).isTrue();
         assertThat(browser.events).containsExactly(new ChatStreamEvents.Delta("It means the"));
         verify(quota, never()).release(any()); // a stopped answer still counts
@@ -89,8 +98,8 @@ class ChatTurnTest {
         model.tryEmitNext(text(" three"));
         model.tryEmitComplete();
 
-        verify(store, times(1)).saveAnswer(any(), anyString(), any(), any());
-        verify(store).saveAnswer(CHAT, "One two", MessageStatus.PARTIAL, null);
+        verify(store, times(1)).saveAnswer(any(), anyString(), any(), any(), any());
+        verify(store).saveAnswer(CHAT, "One two", MessageStatus.PARTIAL, null, List.of());
         assertThat(cancelled).isTrue();
     }
 
@@ -98,7 +107,7 @@ class ChatTurnTest {
     void aFailureBeforeAnyTextSavesFailedAndHandsTheQuestionBack() {
         start(Flux.error(new RuntimeException("boom")));
 
-        verify(store).saveAnswer(CHAT, "", MessageStatus.FAILED, null);
+        verify(store).saveAnswer(CHAT, "", MessageStatus.FAILED, null, List.of());
         verify(quota).release(USER);
         assertThat(browser.events).containsExactly(new ChatStreamEvents.Error(ChatTurn.FAILED_MESSAGE, false, null));
         assertThat(browser.closed).isTrue();
@@ -116,7 +125,7 @@ class ChatTurnTest {
     void aFailureAfterSomeTextKeepsItAsPartialAndStillCounts() {
         start(Flux.concat(Flux.just(text("Health is")), Flux.error(new RuntimeException("reset"))));
 
-        verify(store).saveAnswer(CHAT, "Health is", MessageStatus.PARTIAL, null);
+        verify(store).saveAnswer(CHAT, "Health is", MessageStatus.PARTIAL, null, List.of());
         verify(quota, never()).release(any());
         assertThat(browser.events).containsExactly(
                 new ChatStreamEvents.Delta("Health is"),
@@ -127,7 +136,7 @@ class ChatTurnTest {
     void anEmptyAnswerCountsAsFailed() {
         start(Flux.just(USAGE));
 
-        verify(store).saveAnswer(CHAT, "", MessageStatus.FAILED, USAGE);
+        verify(store).saveAnswer(CHAT, "", MessageStatus.FAILED, USAGE, List.of());
         verify(quota).release(USER);
     }
 
@@ -137,8 +146,8 @@ class ChatTurnTest {
 
         turn.stop(); // the browser's connection closing after "done" also calls stop
 
-        verify(store, times(1)).saveAnswer(any(), anyString(), any(), any());
-        verify(store).saveAnswer(eq(CHAT), eq("Done."), eq(MessageStatus.COMPLETE), eq(USAGE));
+        verify(store, times(1)).saveAnswer(any(), anyString(), any(), any(), any());
+        verify(store).saveAnswer(eq(CHAT), eq("Done."), eq(MessageStatus.COMPLETE), eq(USAGE), eq(List.of()));
     }
 
     @Test
@@ -146,10 +155,48 @@ class ChatTurnTest {
         String chunk = "x".repeat(1000);
         start(Flux.just(text(chunk), text(chunk), text(chunk), text(chunk), text(chunk), text(chunk)));
 
-        verify(store).saveAnswer(eq(CHAT), eq(chunk.repeat(4)), eq(MessageStatus.COMPLETE), any());
+        verify(store).saveAnswer(eq(CHAT), eq(chunk.repeat(4)), eq(MessageStatus.COMPLETE), any(), eq(List.of()));
+    }
+
+    @Test
+    void showsEachLookupBeforeTheTextItLeadsToAndSavesItWithTheAnswer() {
+        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        ToolRun run = new ToolGuard(new AiProperties(Duration.ofMinutes(10), Duration.ofSeconds(2), Duration.ofSeconds(10),
+                500, 5, Duration.ofSeconds(1)), executor).start();
+        ToolCallback uptime = run.guard(List.of(tool("get_uptime", "Health: 99.82% up"))).getFirst();
+        // What the model loop does: the model asks, the tool runs, then the answer streams.
+        Flux<ModelStreamEvent> model = Flux.defer(() -> {
+            uptime.call("{\"monitor\":\"Health\",\"from\":\"2026-09-01\",\"to\":\"2026-09-03\"}", null);
+            return Flux.just(text("Health was up 99.82%."), USAGE);
+        });
+
+        new ChatTurn(model, store, quota, USER, CHAT, QUESTION, run).start(browser);
+
+        assertThat(browser.events).containsExactly(
+                new ChatStreamEvents.Tool("Checked uptime for Health, 2026-09-01 to 2026-09-03"),
+                new ChatStreamEvents.Delta("Health was up 99.82%."),
+                new ChatStreamEvents.Done(QUESTION, 101L, MessageStatus.COMPLETE, QUOTA));
+        verify(store).saveAnswer(eq(CHAT), eq("Health was up 99.82%."), eq(MessageStatus.COMPLETE), eq(USAGE),
+                argThat(lookups -> lookups.size() == 1 && lookups.getFirst().tool().equals("get_uptime")
+                        && lookups.getFirst().ok()));
+        executor.shutdownNow();
     }
 
     // ─── helpers ─────────────────────────────────────────────────────────────
+
+    private static ToolCallback tool(String name, String result) {
+        return new ToolCallback() {
+            @Override
+            public ToolDefinition getToolDefinition() {
+                return ToolDefinition.builder().name(name).description("test").inputSchema("{}").build();
+            }
+
+            @Override
+            public String call(String toolInput) {
+                return result;
+            }
+        };
+    }
 
     private ChatTurn start(Flux<ModelStreamEvent> model) {
         ChatTurn turn = new ChatTurn(model, store, quota, USER, CHAT, QUESTION);
@@ -173,6 +220,11 @@ class ChatTurnTest {
                 throw new IOException("Broken pipe");
             }
             events.add(delta);
+        }
+
+        @Override
+        public void tool(ChatStreamEvents.Tool tool) {
+            events.add(tool);
         }
 
         @Override

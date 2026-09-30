@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from './errors'
-import { createSseParser, streamMessage } from './ai'
+import { createConversation, createSseParser, streamMessage } from './ai'
 import { setSession } from './session'
 import type { AuthResponse } from '../types/auth'
 
@@ -89,6 +89,30 @@ describe('streamMessage', () => {
     expect(url).toBe('/api/ai/conversations/42/messages')
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer access-1')
     expect(JSON.parse(init.body as string).question).toBe('Is Health down?')
+  })
+
+  it('passes each lookup to onTool before the text', async () => {
+    fetchMock.mockResolvedValueOnce(
+      sse([
+        'event:tool\ndata:{"label":"Checked uptime for Health, 2026-09-01"}\n\n',
+        'event:delta\ndata:{"text":"99.82%."}\n\nevent:done\ndata:{"questionId":1,"answerId":2,"status":"COMPLETE","quota":{"used":1,"limit":5}}\n\n',
+      ]),
+    )
+    const seen: string[] = []
+
+    await streamMessage(42, 'Uptime?', { onDelta: (t) => seen.push(`delta:${t}`), onTool: (l) => seen.push(`tool:${l}`) })
+
+    expect(seen).toEqual(['tool:Checked uptime for Health, 2026-09-01', 'delta:99.82%.'])
+  })
+
+  it('starts a chat about a page by sending its id', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ id: 9 }), { status: 201 }))
+
+    await createConversation({ incidentId: 5 })
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toEqual({ incidentId: 5 })
   })
 
   it('returns the error event when the answer ends early', async () => {

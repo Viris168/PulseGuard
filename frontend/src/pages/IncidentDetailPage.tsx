@@ -7,13 +7,14 @@ import { getIncident, getIncidentSummary } from '../api/incidents'
 import { listChecks, listPings } from '../api/monitors'
 import type { Check, Ping } from '../types/check'
 import type { IncidentDetail } from '../types/incident'
-import { formatDay, formatDuration, formatTime, incidentDurationSeconds } from '../lib/format'
+import { formatDateTime, formatDay, formatDuration, formatTime, incidentDurationSeconds } from '../lib/format'
+import { openAskAi } from '../lib/events'
 import { ruleBasedSummary } from '../lib/incidentSummary'
 import { IncidentStatusPill } from '../components/incidents/IncidentStatusPill'
 import { IncidentTimeline } from '../components/incidents/IncidentTimeline'
 import { ChecksTable } from '../components/monitors/ChecksTable'
 import { PingsTable } from '../components/monitors/PingsTable'
-import { ButtonLink } from '../components/ui/Button'
+import { Button, ButtonLink } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { EmptyState } from '../components/ui/EmptyState'
 import { Spinner } from '../components/ui/Spinner'
@@ -107,6 +108,16 @@ export function IncidentDetailPage() {
         <div className="flex items-center gap-3">
           <IncidentStatusPill status={incident.status} />
           <span className="text-sm text-zinc-400 dark:text-zinc-500">Incident #{incident.id}</span>
+          <Button
+            variant="secondary"
+            className="ml-auto"
+            onClick={() =>
+              openAskAi({ incidentId: incident.id, label: `the incident on ${incident.monitorName} (${formatDateTime(incident.startedAt)})` })
+            }
+          >
+            <Sparkles className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden />
+            Ask AI about this
+          </Button>
         </div>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight break-words">{incident.cause ?? 'Unknown cause'}</h1>
         <Link

@@ -202,6 +202,9 @@ pulseguard:
     stream-timeout: ${PULSEGUARD_AI_STREAM_TIMEOUT:90s}
     # Ask AI questions per day on plans sold as unlimited (Business). Free and Pro limits are in PlanLimits.
     fair-use-daily-questions: ${PULSEGUARD_AI_FAIR_USE_DAILY_QUESTIONS:500}
+    # Ask AI tools (AI_MILESTONE_2.md): lookups per question, and the longest one may take.
+    max-tool-calls: ${PULSEGUARD_AI_MAX_TOOL_CALLS:5}
+    tool-timeout: ${PULSEGUARD_AI_TOOL_TIMEOUT:10s}
   stripe:
     # Test-mode keys locally (sk_test_...). The webhook secret comes from `stripe listen` in dev
     # and from the dashboard's endpoint settings in production.

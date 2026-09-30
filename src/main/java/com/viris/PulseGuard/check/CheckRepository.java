@@ -1,5 +1,6 @@
 package com.viris.PulseGuard.check;
 
+import com.viris.PulseGuard.enumeration.CheckResult;
 import com.viris.PulseGuard.check.dto.RecentCheckRow;
 import com.viris.PulseGuard.check.dto.UptimeRow;
 import org.springframework.data.domain.Pageable;
@@ -15,6 +16,10 @@ import java.util.List;
 public interface CheckRepository extends JpaRepository<Check, Long> {
 
     List<Check> findByMonitorIdOrderByCheckedAtDesc(Long monitorId, Pageable pageable);
+
+    /** Ask AI's failed-check lookup: one result (DOWN) since a time, newest first. */
+    List<Check> findByMonitorIdAndResultAndCheckedAtGreaterThanEqualOrderByCheckedAtDesc(
+            Long monitorId, CheckResult result, Instant since, Pageable pageable);
 
     List<Check> findByMonitorIdAndCheckedAtBetween(Long monitorId, Instant from, Instant to);
 

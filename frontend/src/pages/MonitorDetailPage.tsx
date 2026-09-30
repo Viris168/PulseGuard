@@ -12,6 +12,7 @@ import {
   Lock,
   Play,
   RefreshCw,
+  Sparkles,
   Trash2,
   XCircle,
 } from 'lucide-react'
@@ -20,6 +21,7 @@ import { loadErrorMessage } from '../api/errors'
 import { getMonitor, getMonitorStats, listChecks, listPings, pauseMonitor, resumeMonitor, sendTestPing } from '../api/monitors'
 import { listIncidents } from '../api/incidents'
 import { useAuth } from '../auth/authContext'
+import { openAskAi } from '../lib/events'
 import { countDelta, pointsDelta, relativeDelta } from '../lib/delta'
 import { limitsFor, nextPlan, planInfo } from '../lib/plans'
 import type { Check, MonitorRangeStats, Ping, StatsRange } from '../types/check'
@@ -214,6 +216,10 @@ export function MonitorDetailPage() {
           )}
         </div>
         <div className="flex shrink-0 gap-2">
+          <Button variant="secondary" onClick={() => openAskAi({ monitorId: monitor.id, label: monitor.name })}>
+            <Sparkles className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden />
+            Ask AI
+          </Button>
           <Button variant="secondary" onClick={togglePause} loading={toggling}>
             {!toggling && (monitor.isActive ? <Pause className="size-4" aria-hidden /> : <Play className="size-4" aria-hidden />)}
             {monitor.isActive ? 'Pause' : 'Resume'}

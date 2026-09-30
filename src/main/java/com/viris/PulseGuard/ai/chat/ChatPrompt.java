@@ -47,13 +47,22 @@ public final class ChatPrompt {
      * @param earlier the conversation so far, oldest first, without the new question
      */
     public static Prompt build(String question, AskAiSnapshot snapshot, List<AiMessage> earlier) {
+        return build(question, snapshot, earlier, null);
+    }
+
+    /**
+     * @param page which page the chat was started from (ChatContextLoader), or null; placed with
+     *             the data on the newest message, so it's current and never repeated per turn
+     */
+    public static Prompt build(String question, AskAiSnapshot snapshot, List<AiMessage> earlier, String page) {
         List<Message> messages = new ArrayList<>();
         messages.add(new SystemMessage(SYSTEM));
         for (Turn turn : withinBudget(turns(earlier))) {
             messages.add(new UserMessage(turn.question()));
             messages.add(new AssistantMessage(turn.answer()));
         }
-        messages.add(new UserMessage(AskAiPrompt.facts(snapshot) + "\n\nQuestion: " + PromptText.noTags(question)));
+        String context = page == null ? "" : "\n\nPage: " + PromptText.noTags(page);
+        messages.add(new UserMessage(AskAiPrompt.facts(snapshot) + context + "\n\nQuestion: " + PromptText.noTags(question)));
         return new Prompt(messages);
     }
 

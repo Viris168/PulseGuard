@@ -5,7 +5,7 @@ import { Activity, AlertTriangle, CreditCard, Globe, Menu, Moon, Settings, Sun, 
 import { cn } from '../../lib/format'
 import { getBillingSummary } from '../../api/billing'
 import { useAuth } from '../../auth/authContext'
-import { MONITORS_CHANGED } from '../../lib/events'
+import { MONITORS_CHANGED, OPEN_ASK_AI, type AskAiPageContext } from '../../lib/events'
 import { limitsFor, nextPlan } from '../../lib/plans'
 import { PLAN_LABEL, type Plan } from '../../types/auth'
 import { AskAiButton, SupportMenu } from './HeaderActions'
@@ -104,6 +104,18 @@ export function AppLayout() {
   const [aiLoaded, setAiLoaded] = useState(false)
   // Stable, so the panel's open effect doesn't re-run on every render.
   const closeAi = useCallback(() => setAiOpen(false), [])
+  // "Ask AI about this" on a monitor or incident page: open the panel on a new chat about it.
+  // `key` is new on every click, so asking about the same page twice still starts a fresh chat.
+  const [aiPage, setAiPage] = useState<(AskAiPageContext & { key: number }) | null>(null)
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      setAiPage({ ...(e as CustomEvent<AskAiPageContext>).detail, key: Date.now() })
+      setAiLoaded(true)
+      setAiOpen(true)
+    }
+    window.addEventListener(OPEN_ASK_AI, onOpen)
+    return () => window.removeEventListener(OPEN_ASK_AI, onOpen)
+  }, [])
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const { pathname } = useLocation()
@@ -199,7 +211,7 @@ export function AppLayout() {
 
       {aiLoaded && (
         <Suspense fallback={null}>
-          <AskAiPanel open={aiOpen} onClose={closeAi} />
+          <AskAiPanel open={aiOpen} onClose={closeAi} page={aiPage} />
         </Suspense>
       )}
     </div>

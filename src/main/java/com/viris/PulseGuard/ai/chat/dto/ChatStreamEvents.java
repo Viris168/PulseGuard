@@ -12,6 +12,10 @@ public final class ChatStreamEvents {
     private ChatStreamEvents() {
     }
 
+    /** {@code event: tool}: something the model looked up, e.g. "Checked uptime for Health, …". */
+    public record Tool(String label) {
+    }
+
     /** {@code event: delta}: the next piece of the answer. */
     public record Delta(String text) {
     }

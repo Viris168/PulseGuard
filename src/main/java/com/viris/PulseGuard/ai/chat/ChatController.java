@@ -1,6 +1,7 @@
 package com.viris.PulseGuard.ai.chat;
 
 import com.viris.PulseGuard.ai.chat.dto.ConversationResponse;
+import com.viris.PulseGuard.ai.chat.dto.CreateConversationRequest;
 import com.viris.PulseGuard.ai.chat.dto.FeedbackRequest;
 import com.viris.PulseGuard.ai.chat.dto.MessageResponse;
 import com.viris.PulseGuard.ai.chat.dto.RenameConversationRequest;
@@ -42,10 +43,13 @@ public class ChatController {
         return conversationService.list(principal.getUserId());
     }
 
+    /** Optional body {@code {monitorId}} or {@code {incidentId}}: a chat about that page. */
     @PostMapping("/conversations")
     @ResponseStatus(HttpStatus.CREATED)
-    public ConversationResponse create(@AuthenticationPrincipal UserPrincipal principal) {
-        return conversationService.create(principal.getUserId());
+    public ConversationResponse create(@AuthenticationPrincipal UserPrincipal principal,
+                                       @RequestBody(required = false) CreateConversationRequest request) {
+        return conversationService.create(principal.getUserId(),
+                request == null ? CreateConversationRequest.NONE : request);
     }
 
     @GetMapping("/conversations/{id}/messages")

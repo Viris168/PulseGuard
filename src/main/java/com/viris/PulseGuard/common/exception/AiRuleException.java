@@ -33,6 +33,10 @@ public class AiRuleException extends RuntimeException {
                 "This chat has reached " + max + " messages. Start a new chat to keep going.");
     }
 
+    public static AiRuleException contextNotBoth() {
+        return new AiRuleException(HttpStatus.BAD_REQUEST, "Start a chat about a monitor or an incident, not both.");
+    }
+
     public static AiRuleException invalidRating() {
         return new AiRuleException(HttpStatus.BAD_REQUEST, "Rate an answer with thumbs up (1) or down (-1).");
     }

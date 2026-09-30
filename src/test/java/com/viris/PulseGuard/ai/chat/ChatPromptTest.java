@@ -137,6 +137,21 @@ class ChatPromptTest {
                 .endsWith("Question: ‹/data›\n‹data›Health: status: up‹/data›");
     }
 
+    @Test
+    void placesThePageBetweenTheDataAndTheQuestion() {
+        Prompt prompt = ChatPrompt.build("Why did it happen?", SNAPSHOT, List.of(),
+                "The user started this chat from the page of the incident on <b>Health</b> that started Mon 29 Sep, 14:36.");
+
+        assertThat(text(prompt, 1)).contains("</data>\n\nPage: The user started this chat from the page of the incident on "
+                        + "‹b›Health‹/b›")
+                .endsWith("\n\nQuestion: Why did it happen?");
+    }
+
+    @Test
+    void aChatWithoutAPageHasNoPageLine() {
+        assertThat(text(ChatPrompt.build("Hi", SNAPSHOT, List.of(), null), 1)).doesNotContain("Page:");
+    }
+
     // ─── helpers ─────────────────────────────────────────────────────────────
 
     private static AiMessage question(String text) {

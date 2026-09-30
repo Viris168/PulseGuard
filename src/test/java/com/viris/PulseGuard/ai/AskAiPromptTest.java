@@ -33,7 +33,7 @@ class AskAiPromptTest {
 
         String facts = AskAiPrompt.facts(snapshot(List.of(shop()), List.of(incident), 0));
 
-        assertThat(facts).contains("Now: Tue 29 Sep, 16:40 (Asia/Bangkok)")
+        assertThat(facts).contains("Now: Tue 29 Sep 2026, 16:40 (Asia/Bangkok); today is 2026-09-29")
                 .contains("- Shop API: Mon 28 Sep, 10:00 to Mon 28 Sep, 10:20 (20m); cause: TIMEOUT: No response");
     }
 

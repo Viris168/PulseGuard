@@ -24,6 +24,11 @@ class SseChatEvents implements ChatEvents {
     }
 
     @Override
+    public void tool(ChatStreamEvents.Tool tool) throws IOException {
+        send("tool", tool);
+    }
+
+    @Override
     public void done(ChatStreamEvents.Done done) throws IOException {
         send("done", done);
     }

@@ -2,7 +2,17 @@ package com.viris.PulseGuard.ai.chat;
 
 import com.viris.PulseGuard.ai.chat.dto.ConversationResponse;
 import com.viris.PulseGuard.ai.chat.dto.MessageResponse;
+import com.viris.PulseGuard.ai.AiAccess;
+import com.viris.PulseGuard.ai.AiAccessRepository;
+import com.viris.PulseGuard.ai.chat.dto.CreateConversationRequest;
+import com.viris.PulseGuard.ai.tools.ToolLabels;
 import com.viris.PulseGuard.auth.UserRepository;
+import com.viris.PulseGuard.common.exception.IncidentNotFoundException;
+import com.viris.PulseGuard.common.exception.MonitorNotFoundException;
+import com.viris.PulseGuard.incident.Incident;
+import com.viris.PulseGuard.incident.IncidentRepository;
+import com.viris.PulseGuard.monitor.Monitor;
+import com.viris.PulseGuard.monitor.MonitorRepository;
 import com.viris.PulseGuard.common.exception.AiRuleException;
 import com.viris.PulseGuard.common.exception.ChatNotFoundException;
 import com.viris.PulseGuard.enumeration.MessageRole;
@@ -30,14 +40,24 @@ public class ConversationService {
     private final AiConversationRepository conversations;
     private final AiMessageRepository messages;
     private final AiMessageFeedbackRepository feedback;
+    private final AiToolCallRepository toolCalls;
     private final UserRepository users;
+    private final AiAccessRepository accessRepository;
+    private final MonitorRepository monitors;
+    private final IncidentRepository incidents;
 
     public ConversationService(AiConversationRepository conversations, AiMessageRepository messages,
-                               AiMessageFeedbackRepository feedback, UserRepository users) {
+                               AiMessageFeedbackRepository feedback, AiToolCallRepository toolCalls,
+                               UserRepository users, AiAccessRepository accessRepository,
+                               MonitorRepository monitors, IncidentRepository incidents) {
         this.conversations = conversations;
         this.messages = messages;
         this.feedback = feedback;
+        this.toolCalls = toolCalls;
         this.users = users;
+        this.accessRepository = accessRepository;
+        this.monitors = monitors;
+        this.incidents = incidents;
     }
 
     @Transactional(readOnly = true)
@@ -47,14 +67,37 @@ public class ConversationService {
                 .toList();
     }
 
-    /** An empty chat; its first message gives it a real title. */
+    /**
+     * An empty chat; its first message gives it a real title. Started from a monitor's or an
+     * incident's page, it remembers which, once checked: the monitor must be the caller's and shared
+     * with Ask AI, else it's a 404 exactly like one that doesn't exist.
+     */
     @Transactional
-    public ConversationResponse create(Long userId) {
+    public ConversationResponse create(Long userId, CreateConversationRequest request) {
         AiConversation conversation = new AiConversation(users.getReferenceById(userId), NEW_CHAT_TITLE);
+        if (request.monitorId() != null && request.incidentId() != null) {
+            throw AiRuleException.contextNotBoth();
+        }
+        if (request.monitorId() != null || request.incidentId() != null) {
+            AiAccess access = accessRepository.findById(userId).filter(AiAccess::isEnabled)
+                    .orElseThrow(AiRuleException::disabled);
+            if (request.incidentId() != null) {
+                Incident incident = incidents.findByIdAndMonitorUserId(request.incidentId(), userId)
+                        .filter(i -> access.allows(i.getMonitor().getId()))
+                        .orElseThrow(() -> new IncidentNotFoundException(request.incidentId()));
+                conversation.setContextIncidentId(incident.getId());
+                conversation.setContextMonitorId(incident.getMonitor().getId());
+            } else {
+                Monitor monitor = monitors.findByIdAndUserId(request.monitorId(), userId)
+                        .filter(m -> access.allows(m.getId()))
+                        .orElseThrow(() -> new MonitorNotFoundException(request.monitorId()));
+                conversation.setContextMonitorId(monitor.getId());
+            }
+        }
         return ConversationResponse.from(conversations.save(conversation));
     }
 
-    /** Oldest first, each answer with the caller's rating if they gave one. */
+    /** Oldest first, each answer with the caller's rating and what it looked up. */
     @Transactional(readOnly = true)
     public List<MessageResponse> messages(Long userId, Long conversationId) {
         owned(userId, conversationId);
@@ -63,7 +106,12 @@ public class ConversationService {
                 .map(AiMessage::getId).toList();
         Map<Long, Short> ratings = feedback.findAllById(answerIds).stream()
                 .collect(Collectors.toMap(AiMessageFeedback::getMessageId, AiMessageFeedback::getRating));
-        return list.stream().map(m -> MessageResponse.from(m, ratings.get(m.getId()))).toList();
+        Map<Long, List<String>> lookups = toolCalls.findAllByMessageIdInOrderByIdAsc(answerIds).stream()
+                .collect(Collectors.groupingBy(AiToolCall::getMessageId,
+                        Collectors.mapping(c -> ToolLabels.label(c.toRecord()), Collectors.toList())));
+        return list.stream()
+                .map(m -> MessageResponse.from(m, ratings.get(m.getId()), lookups.getOrDefault(m.getId(), List.of())))
+                .toList();
     }
 
     @Transactional

@@ -19,11 +19,16 @@ import java.time.Duration;
  *                              provider that trickles text forever can't hold a connection open.
  * @param fairUseDailyQuestions the Ask AI cap for plans sold as unlimited: every question costs
  *                              money, so "unlimited" still stops a script from running up the bill.
+ * @param maxToolCalls          tool calls the model may make while answering one question; every
+ *                              call is another model request, so a confused model can't loop.
+ * @param toolTimeout           the longest one tool (a database lookup) may take.
  */
 @Validated
 @ConfigurationProperties(prefix = "pulseguard.ai")
 public record AiProperties(@NotNull Duration openSummaryTtl,
                            @NotNull Duration timeout,
                            @NotNull Duration streamTimeout,
-                           @Min(1) int fairUseDailyQuestions) {
+                           @Min(1) int fairUseDailyQuestions,
+                           @Min(0) int maxToolCalls,
+                           @NotNull Duration toolTimeout) {
 }

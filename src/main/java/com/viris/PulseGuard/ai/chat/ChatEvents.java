@@ -13,6 +13,8 @@ public interface ChatEvents {
 
     void delta(ChatStreamEvents.Delta delta) throws IOException;
 
+    void tool(ChatStreamEvents.Tool tool) throws IOException;
+
     void done(ChatStreamEvents.Done done) throws IOException;
 
     void error(ChatStreamEvents.Error error) throws IOException;

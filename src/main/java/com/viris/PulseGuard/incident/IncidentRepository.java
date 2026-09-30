@@ -53,6 +53,24 @@ public interface IncidentRepository extends JpaRepository<Incident, Long> {
                                    @Param("windowStart") Instant windowStart,
                                    @Param("windowEnd") Instant windowEnd);
 
+    /**
+     * Ask AI's incident lookups: incidents that were open at any moment of [windowStart, windowEnd)
+     * on the given monitors, newest first, with each monitor loaded for its name. The caller
+     * passes only monitors the user shared, so the query can never reach anyone else's.
+     */
+    @Query("""
+            select i from Incident i
+            join fetch i.monitor m
+            where m.id in :monitorIds
+              and i.startedAt < :windowEnd
+              and (i.resolvedAt is null or i.resolvedAt > :windowStart)
+            order by i.startedAt desc
+            """)
+    List<Incident> findInRangeNewestFirst(@Param("monitorIds") Collection<Long> monitorIds,
+                                          @Param("windowStart") Instant windowStart,
+                                          @Param("windowEnd") Instant windowEnd,
+                                          Pageable page);
+
     /** {@link #findOverlapping} for several monitors at once. */
     @Query("""
             select i from Incident i

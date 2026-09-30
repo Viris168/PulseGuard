@@ -179,7 +179,7 @@ class ModelCallerStreamTest {
     }
 
     private static AiProperties properties(Duration firstPiece, Duration whole) {
-        return new AiProperties(Duration.ofMinutes(10), firstPiece, whole, 500);
+        return new AiProperties(Duration.ofMinutes(10), firstPiece, whole, 500, 5, Duration.ofSeconds(10));
     }
 
     private static ChatResponse piece(String text) {

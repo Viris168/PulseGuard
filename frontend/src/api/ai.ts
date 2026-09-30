@@ -42,6 +42,9 @@ export interface AiConversation {
   title: string
   createdAt: string
   updatedAt: string
+  /** The page the chat was started from: a monitor, or an incident (then its monitor too). */
+  contextMonitorId: number | null
+  contextIncidentId: number | null
 }
 
 export type MessageStatus = 'COMPLETE' | 'PARTIAL' | 'FAILED'
@@ -55,6 +58,8 @@ export interface AiMessage {
   createdAt: string
   /** The caller's thumbs up (1) or down (-1) on an answer; null when not rated. */
   rating: 1 | -1 | null
+  /** What the model looked up for an answer, e.g. "Checked uptime for Health, 2026-09-01". */
+  lookups: string[]
 }
 
 /** GET /api/ai/conversations — newest first. */
@@ -62,9 +67,12 @@ export async function listConversations(): Promise<AiConversation[]> {
   return api<AiConversation[]>('/api/ai/conversations')
 }
 
-/** POST /api/ai/conversations — an empty chat; its first question becomes the title. */
-export async function createConversation(): Promise<AiConversation> {
-  return api<AiConversation>('/api/ai/conversations', { method: 'POST' })
+/**
+ * POST /api/ai/conversations — an empty chat; its first question becomes the title. With a
+ * monitor or incident, the chat is about that page (404 when it isn't yours or isn't shared).
+ */
+export async function createConversation(about?: { monitorId?: number; incidentId?: number }): Promise<AiConversation> {
+  return api<AiConversation>('/api/ai/conversations', { method: 'POST', body: about })
 }
 
 /** GET /api/ai/conversations/{id}/messages — oldest first. Another account's chat is a 404. */
@@ -112,13 +120,17 @@ export type StreamResult =
 /**
  * POST /api/ai/conversations/{id}/messages, reading the Server-Sent Events answer with fetch
  * (EventSource can't send the Authorization header). Calls `onDelta` with each piece as it
- * arrives. Refusals (403, 404, 409, 429) happen before the stream starts and throw ApiError,
+ * arrives, and `onTool` with each lookup the model makes ("Checked uptime for Health, …"). Refusals (403, 404, 409, 429) happen before the stream starts and throw ApiError,
  * like any other call. Aborting `signal` is Stop.
  */
 export async function streamMessage(
   conversationId: number,
   question: string,
-  { onDelta, signal }: { onDelta: (text: string) => void; signal?: AbortSignal },
+  {
+    onDelta,
+    onTool,
+    signal,
+  }: { onDelta: (text: string) => void; onTool?: (label: string) => void; signal?: AbortSignal },
 ): Promise<StreamResult> {
   let result: StreamResult | null = null
   try {
@@ -130,6 +142,7 @@ export async function streamMessage(
     if (!res.body) throw new Error('The answer stream could not be read.')
     const parser = createSseParser((event, data) => {
       if (event === 'delta') onDelta((JSON.parse(data) as { text: string }).text)
+      else if (event === 'tool') onTool?.((JSON.parse(data) as { label: string }).label)
       else if (event === 'done') result = { kind: 'done', done: JSON.parse(data) as StreamDone }
       else if (event === 'error') result = { kind: 'error', error: JSON.parse(data) as StreamError }
     })

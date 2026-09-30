@@ -1,5 +1,6 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { ComponentProps } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { StreamResult } from '../../api/ai'
@@ -27,27 +28,37 @@ vi.mock('../../api/monitors', () => monitors)
 Element.prototype.scrollTo ??= () => {}
 
 const ON = { enabled: true, allMonitors: true, monitorIds: [] }
-const CHAT = { id: 42, title: 'Is Health down?', createdAt: '2026-09-30T09:00:00Z', updatedAt: '2026-09-30T09:05:00Z' }
+const CHAT = {
+  id: 42,
+  title: 'Is Health down?',
+  createdAt: '2026-09-30T09:00:00Z',
+  updatedAt: '2026-09-30T09:05:00Z',
+  contextMonitorId: null,
+  contextIncidentId: null,
+}
 const DONE: StreamResult = {
   kind: 'done',
   done: { questionId: 1, answerId: 2, status: 'COMPLETE', quota: { used: 1, limit: 5 } },
 }
 
-function renderPanel() {
+function renderPanel(page: ComponentProps<typeof AskAiPanel>['page'] = null) {
   render(
     <MemoryRouter>
-      <AskAiPanel open onClose={() => {}} />
+      <AskAiPanel open onClose={() => {}} page={page} />
     </MemoryRouter>,
   )
   return userEvent.setup()
 }
 
-/** Plays back an answer: each piece through onDelta, then the given result. */
-function answers(pieces: string[], result: StreamResult = DONE) {
-  ai.streamMessage.mockImplementation(async (_id: number, _q: string, { onDelta }: { onDelta: (t: string) => void }) => {
-    pieces.forEach(onDelta)
-    return result
-  })
+/** Plays back an answer: each lookup through onTool, each piece through onDelta, then the result. */
+function answers(pieces: string[], result: StreamResult = DONE, lookups: string[] = []) {
+  ai.streamMessage.mockImplementation(
+    async (_id: number, _q: string, { onDelta, onTool }: { onDelta: (t: string) => void; onTool?: (l: string) => void }) => {
+      lookups.forEach((l) => onTool?.(l))
+      pieces.forEach(onDelta)
+      return result
+    },
+  )
 }
 
 beforeEach(() => {
@@ -95,6 +106,49 @@ describe('Ask AI panel', () => {
     const items = screen.getAllByRole('listitem')
     expect(items.map((li) => li.textContent)).toEqual(['Tue 29 Sep, 15:03 to 15:42', 'Tue 29 Sep, 14:36 to 15:06'])
     expect(screen.getByText('60%', { selector: 'strong' })).toBeInTheDocument()
+  })
+
+  it('shows what it looked up above the answer', async () => {
+    answers(['Health was up 99.82%.'], DONE, ['Checked uptime for Health, 2026-09-01 to 2026-09-03'])
+    const user = renderPanel()
+
+    await user.type(await screen.findByLabelText('Your question'), 'Uptime of Health, 1 to 3 Sep?{Enter}')
+
+    expect(await screen.findByText('Health was up 99.82%.')).toBeInTheDocument()
+    const lookups = screen.getByRole('list', { name: 'What Ask AI looked up' })
+    expect(within(lookups).getByText('Checked uptime for Health, 2026-09-01 to 2026-09-03')).toBeInTheDocument()
+  })
+
+  it('starts a chat about an incident from its page', async () => {
+    answers(['It returned 503s.'])
+    const user = renderPanel({ incidentId: 5, label: 'the incident on Health (Tue 29 Sep, 14:36)', key: 1 })
+
+    expect(await screen.findByText('About the incident on Health (Tue 29 Sep, 14:36)')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Why did this happen?' }))
+
+    expect(ai.createConversation).toHaveBeenCalledWith({ incidentId: 5 })
+    expect(await screen.findByText('It returned 503s.')).toBeInTheDocument()
+  })
+
+  it('starts a chat about a monitor from its page', async () => {
+    answers(['Fine all week.'])
+    const user = renderPanel({ monitorId: 7, label: 'Shop API', key: 1 })
+
+    await user.click(await screen.findByRole('button', { name: 'How has Shop API been this week?' }))
+
+    expect(ai.createConversation).toHaveBeenCalledWith({ monitorId: 7 })
+  })
+
+  it('a new chat is no longer about the page', async () => {
+    answers(['Hi.'])
+    const user = renderPanel({ monitorId: 7, label: 'Shop API', key: 1 })
+
+    await screen.findByText('About Shop API')
+    await user.click(screen.getByRole('button', { name: 'New chat' }))
+    await user.type(screen.getByLabelText('Your question'), 'Anything down?{Enter}')
+
+    expect(screen.queryByText('About Shop API')).not.toBeInTheDocument()
+    expect(ai.createConversation).toHaveBeenCalledWith(undefined)
   })
 
   it('sends a follow-up in the same chat', async () => {
@@ -168,19 +222,30 @@ describe('Ask AI panel', () => {
   })
 
   it('reopens a saved chat from the list', async () => {
-    ai.listConversations.mockResolvedValue([CHAT])
+    ai.listConversations.mockResolvedValue([{ ...CHAT, contextMonitorId: 7 }])
     ai.getMessages.mockResolvedValue([
-      { id: 1, role: 'USER', content: 'Is Health down?', status: 'COMPLETE', createdAt: CHAT.createdAt, rating: null },
-      { id: 2, role: 'ASSISTANT', content: 'Yes, it returns 503.', status: 'COMPLETE', createdAt: CHAT.createdAt, rating: 1 },
+      { id: 1, role: 'USER', content: 'Is Health down?', status: 'COMPLETE', createdAt: CHAT.createdAt, rating: null, lookups: [] },
+      {
+        id: 2,
+        role: 'ASSISTANT',
+        content: 'Yes, it returns 503.',
+        status: 'COMPLETE',
+        createdAt: CHAT.createdAt,
+        rating: 1,
+        lookups: ['Checked recent failed checks for Shop API'],
+      },
     ])
     const user = renderPanel()
 
     await user.click(await screen.findByRole('button', { name: 'Your chats' }))
+    expect(screen.getByText(/About Shop API ·/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^Is Health down\?/ }))
 
     expect(await screen.findByText('Yes, it returns 503.')).toBeInTheDocument()
     expect(ai.getMessages).toHaveBeenCalledWith(42)
     expect(screen.getByRole('button', { name: 'Good answer' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('Checked recent failed checks for Shop API')).toBeInTheDocument()
+    expect(screen.getByText('About Shop API')).toBeInTheDocument()
   })
 
   it('renames and deletes chats', async () => {

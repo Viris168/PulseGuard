@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../api/errors'
+import { OPEN_ASK_AI } from '../lib/events'
 import { check, incident, incidentDetail } from '../test/fixtures'
 import { IncidentDetailPage } from './IncidentDetailPage'
 import { IncidentsPage } from './IncidentsPage'
@@ -51,6 +52,20 @@ describe('Incidents list', () => {
 })
 
 describe('Incident details', () => {
+  it('opens Ask AI about this incident', async () => {
+    const opened = vi.fn()
+    const listener = (e: Event) => opened((e as CustomEvent).detail)
+    window.addEventListener(OPEN_ASK_AI, listener)
+    const user = renderAt('/incidents/10')
+
+    await user.click(await screen.findByRole('button', { name: 'Ask AI about this' }))
+
+    expect(opened).toHaveBeenCalledWith(
+      expect.objectContaining({ incidentId: 10, label: expect.stringContaining('the incident on Payments API') }),
+    )
+    window.removeEventListener(OPEN_ASK_AI, listener)
+  })
+
   it('tells the story: cause, timeline and summary', async () => {
     renderAt('/incidents/10')
 

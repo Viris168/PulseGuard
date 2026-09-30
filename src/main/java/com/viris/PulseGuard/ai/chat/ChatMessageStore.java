@@ -1,6 +1,7 @@
 package com.viris.PulseGuard.ai.chat;
 
 import com.viris.PulseGuard.ai.ModelStreamEvent;
+import com.viris.PulseGuard.ai.tools.ToolCallRecord;
 import com.viris.PulseGuard.common.exception.ChatNotFoundException;
 import com.viris.PulseGuard.enumeration.MessageRole;
 import com.viris.PulseGuard.enumeration.MessageStatus;
@@ -26,10 +27,13 @@ public class ChatMessageStore {
 
     private final AiConversationRepository conversations;
     private final AiMessageRepository messages;
+    private final AiToolCallRepository toolCalls;
 
-    public ChatMessageStore(AiConversationRepository conversations, AiMessageRepository messages) {
+    public ChatMessageStore(AiConversationRepository conversations, AiMessageRepository messages,
+                            AiToolCallRepository toolCalls) {
         this.conversations = conversations;
         this.messages = messages;
+        this.toolCalls = toolCalls;
     }
 
     /** The conversation so far, oldest first, newest {@value #HISTORY_MESSAGES} at most. */
@@ -55,9 +59,10 @@ public class ChatMessageStore {
                 .getId();
     }
 
-    /** Saves the answer as it ended, with what the provider reported about it. */
+    /** Saves the answer as it ended, with what the provider reported and the lookups it made. */
     @Transactional
-    public Long saveAnswer(Long conversationId, String text, MessageStatus status, ModelStreamEvent.Finished usage) {
+    public Long saveAnswer(Long conversationId, String text, MessageStatus status, ModelStreamEvent.Finished usage,
+                           List<ToolCallRecord> lookups) {
         AiConversation conversation = conversations.getReferenceById(conversationId);
         conversation.setUpdatedAt(Instant.now());
         AiMessage answer = new AiMessage(conversation, MessageRole.ASSISTANT, text, status);
@@ -66,7 +71,9 @@ public class ChatMessageStore {
             answer.setInputTokens(usage.inputTokens());
             answer.setOutputTokens(usage.outputTokens());
         }
-        return messages.save(answer).getId();
+        Long answerId = messages.save(answer).getId();
+        toolCalls.saveAll(lookups.stream().map(r -> new AiToolCall(answerId, r)).toList());
+        return answerId;
     }
 
     static String title(String question) {

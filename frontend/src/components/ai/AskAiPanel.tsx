@@ -10,6 +10,7 @@ import {
   MessagesSquare,
   Pencil,
   RotateCcw,
+  Search,
   SlidersHorizontal,
   Sparkles,
   Square,
@@ -39,6 +40,7 @@ import {
 import { ApiError } from '../../api/errors'
 import { listMonitors } from '../../api/monitors'
 import type { MonitorWithStats } from '../../types/monitor'
+import type { AskAiPageContext } from '../../lib/events'
 import { cn, formatDateTime } from '../../lib/format'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Modal'
@@ -60,6 +62,8 @@ interface ChatItem {
   upgrade?: boolean
   /** The question to send again from a "Try again" button (only when it wasn't counted). */
   retry?: string
+  /** What the model looked up for this answer, e.g. "Checked uptime for Health, 2026-09-01". */
+  lookups?: string[]
 }
 
 type View = 'loading' | 'setup' | 'review' | 'chat' | 'history'
@@ -75,10 +79,28 @@ function toItem(m: AiMessage): ChatItem {
     text: m.content,
     status: m.status,
     rating: m.rating,
+    lookups: m.lookups ?? [],
   }
 }
 
 const GENERIC_SUGGESTIONS = ['Which monitor is slowest this week?', 'What does 503 mean?', "What's down right now?"]
+const INCIDENT_SUGGESTIONS = ['Why did this happen?', 'Has this happened before?', 'How long was it down, and who was alerted?']
+const monitorSuggestions = (name: string) => [`How has ${name} been this week?`, 'Why did it fail most recently?', "What's its uptime over the last 30 days?"]
+
+/** The lines under an answer saying what Ask AI looked up, so you can see what it's based on. */
+function Lookups({ items }: { items?: string[] }) {
+  if (!items?.length) return null
+  return (
+    <ul className="space-y-0.5 text-xs text-zinc-500 dark:text-zinc-400" aria-label="What Ask AI looked up">
+      {items.map((label, i) => (
+        <li key={i} className="flex items-start gap-1.5">
+          <Search className="mt-0.5 size-3 shrink-0" aria-hidden />
+          {label}
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 const BULLET = /^\s*[-*•]\s+/
 
@@ -129,9 +151,11 @@ function RichText({ text }: { text: string }) {
 interface Props {
   open: boolean
   onClose: () => void
+  /** "Ask AI about this" from a monitor or incident page; a new `key` starts a new chat about it. */
+  page?: (AskAiPageContext & { key: number }) | null
 }
 
-export function AskAiPanel({ open, onClose }: Props) {
+export function AskAiPanel({ open, onClose, page = null }: Props) {
   const [view, setView] = useState<View>('loading')
   const [access, setAccess] = useState<AiAccess | null>(null)
   const [draft, setDraft] = useState<AiAccess>({ enabled: false, allMonitors: true, monitorIds: [] })
@@ -143,6 +167,8 @@ export function AskAiPanel({ open, onClose }: Props) {
   const [conversations, setConversations] = useState<AiConversation[]>([])
   /** null: a new chat, created on the server when its first question is sent. */
   const [chatId, setChatId] = useState<number | null>(null)
+  /** The page the current chat is about, if any; sent when the chat is created. */
+  const [about, setAbout] = useState<AskAiPageContext | null>(null)
   const [items, setItems] = useState<ChatItem[]>([])
   const [loadingChat, setLoadingChat] = useState(false)
   const [editing, setEditing] = useState<{ id: number; title: string } | null>(null)
@@ -157,6 +183,16 @@ export function AskAiPanel({ open, onClose }: Props) {
   const listRef = useRef<HTMLDivElement>(null)
   /** Aborting it is Stop; closing the panel mid-answer aborts too. */
   const abortRef = useRef<AbortController | null>(null)
+  // A new "Ask AI about this" click: start a fresh chat about that page. Done while rendering
+  // (React's pattern for reacting to a changed prop), so the old chat never flashes first.
+  const [seenPageKey, setSeenPageKey] = useState<number | null>(null)
+  if (page && page.key !== seenPageKey) {
+    setSeenPageKey(page.key)
+    setAbout({ monitorId: page.monitorId, incidentId: page.incidentId, label: page.label })
+    setChatId(null)
+    setItems([])
+    setView((v) => (v === 'history' ? 'chat' : v))
+  }
 
   useEffect(() => {
     if (!open) return
@@ -240,12 +276,14 @@ export function AskAiPanel({ open, onClose }: Props) {
     try {
       let id = chatId
       if (id === null) {
-        id = (await createConversation()).id
+        // An incident implies its monitor; the server takes one or the other, never both.
+        id = (await createConversation(about ? (about.incidentId ? { incidentId: about.incidentId } : { monitorId: about.monitorId }) : undefined)).id
         setChatId(id)
       }
       const result = await streamMessage(id, q, {
         signal: controller.signal,
         onDelta: (text) => update(answerKey, (a) => ({ ...a, text: a.text + text })),
+        onTool: (label) => update(answerKey, (a) => ({ ...a, lookups: [...(a.lookups ?? []), label] })),
       })
       if (result.kind === 'done') {
         update(answerKey, (a) => ({ ...a, id: result.done.answerId, status: 'COMPLETE', streaming: false }))
@@ -288,13 +326,24 @@ export function AskAiPanel({ open, onClose }: Props) {
   function newChat() {
     if (streaming) return
     setChatId(null)
+    setAbout(null)
     setItems([])
     setView('chat')
+  }
+
+  /** What a saved chat is about, in words, from the monitors this panel already loaded. */
+  function aboutOf(c: AiConversation): AskAiPageContext | null {
+    const name = monitors?.find((m) => m.id === c.contextMonitorId)?.name ?? 'a monitor'
+    // != null: also covers a field the server left out.
+    if (c.contextIncidentId != null) return { incidentId: c.contextIncidentId, label: `an incident on ${name}` }
+    if (c.contextMonitorId != null) return { monitorId: c.contextMonitorId, label: name }
+    return null
   }
 
   async function openConversation(c: AiConversation) {
     if (streaming) return
     setChatId(c.id)
+    setAbout(aboutOf(c))
     setItems([])
     setView('chat')
     setLoadingChat(true)
@@ -377,7 +426,13 @@ export function AskAiPanel({ open, onClose }: Props) {
   // Lead with a monitor Ask AI can actually see, preferring one that's having problems.
   const inScope = (monitors ?? []).filter((m) => access?.allMonitors || access?.monitorIds.includes(m.id))
   const example = inScope.find((m) => m.isActive && m.lastCheckedAt && m.state !== 'UP') ?? inScope[0]
-  const suggestions = example ? [`Why did ${example.name} go down?`, ...GENERIC_SUGGESTIONS] : GENERIC_SUGGESTIONS
+  const suggestions = about?.incidentId
+    ? INCIDENT_SUGGESTIONS
+    : about?.monitorId
+      ? monitorSuggestions(about.label)
+      : example
+        ? [`Why did ${example.name} go down?`, ...GENERIC_SUGGESTIONS]
+        : GENERIC_SUGGESTIONS
   const scopeLabel = access?.allMonitors ? 'All monitors' : `${access?.monitorIds.length ?? 0} monitor${access?.monitorIds.length === 1 ? '' : 's'}`
 
   return createPortal(
@@ -614,7 +669,10 @@ export function AskAiPanel({ open, onClose }: Props) {
                     ) : (
                       <button onClick={() => openConversation(c)} className="min-w-0 flex-1 text-left">
                         <span className="block truncate text-sm font-medium">{c.title}</span>
-                        <span className="block text-xs text-zinc-500 dark:text-zinc-400">{formatDateTime(c.updatedAt)}</span>
+                        <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">
+                          {aboutOf(c) && <>About {aboutOf(c)!.label} · </>}
+                          {formatDateTime(c.updatedAt)}
+                        </span>
                       </button>
                     )}
                     <button
@@ -641,6 +699,12 @@ export function AskAiPanel({ open, onClose }: Props) {
         {view === 'chat' && (
           <>
             <div ref={listRef} className="flex-1 space-y-4 overflow-y-auto p-4" aria-live="polite">
+              {about && (
+                <p className="mx-auto flex w-fit max-w-full items-center gap-1.5 truncate rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+                  <Sparkles className="size-3.5 shrink-0" aria-hidden />
+                  About {about.label}
+                </p>
+              )}
               {loadingChat && (
                 <div className="flex justify-center pt-10 text-zinc-400">
                   <Spinner />
@@ -675,16 +739,20 @@ export function AskAiPanel({ open, onClose }: Props) {
                 }
                 if (m.role === 'assistant' && m.streaming && !m.text) {
                   return (
-                    <div key={m.key} className="flex items-end gap-1" aria-label="Thinking">
-                      {/* A half-size mascot, glancing around while the answer is on its way. */}
-                      <div className="-mb-2 -ml-6 h-16 w-24 shrink-0">
-                        <PulseMascot thinking className="origin-top-left scale-50" />
+                    <div key={m.key}>
+                      <div className="flex items-end gap-1" aria-label="Thinking">
+                        {/* A half-size mascot, glancing around while the answer is on its way. */}
+                        <div className="-mb-2 -ml-6 h-16 w-24 shrink-0">
+                          <PulseMascot thinking className="origin-top-left scale-50" />
+                        </div>
+                        <div className="-ml-4 mb-3 flex items-center gap-1 rounded-2xl rounded-bl-md border border-zinc-200 bg-white px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-900">
+                          {[0, 150, 300].map((d) => (
+                            <span key={d} className="size-1.5 animate-bounce rounded-full bg-zinc-400" style={{ animationDelay: `${d}ms` }} />
+                          ))}
+                        </div>
                       </div>
-                      <div className="-ml-4 mb-3 flex items-center gap-1 rounded-2xl rounded-bl-md border border-zinc-200 bg-white px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-900">
-                        {[0, 150, 300].map((d) => (
-                          <span key={d} className="size-1.5 animate-bounce rounded-full bg-zinc-400" style={{ animationDelay: `${d}ms` }} />
-                        ))}
-                      </div>
+                      {/* Lookups happen before any text, so they show while it's still thinking. */}
+                      <Lookups items={m.lookups} />
                     </div>
                   )
                 }
@@ -720,6 +788,11 @@ export function AskAiPanel({ open, onClose }: Props) {
                     key={m.key}
                     className="max-w-[92%] rounded-2xl rounded-bl-md border border-zinc-200 bg-white px-3.5 py-2.5 text-sm text-zinc-800 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
                   >
+                    {!!m.lookups?.length && (
+                      <div className="mb-2 border-b border-zinc-100 pb-2 dark:border-zinc-800">
+                        <Lookups items={m.lookups} />
+                      </div>
+                    )}
                     {failed ? (
                       <p className="text-zinc-500 italic dark:text-zinc-400">No answer: Ask AI couldn't reply to this one.</p>
                     ) : m.text ? (

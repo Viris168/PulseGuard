@@ -1,3 +1,4 @@
+import { OPEN_ASK_AI } from '../lib/events'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -67,6 +68,19 @@ describe('Monitors list', () => {
 })
 
 describe('Monitor details', () => {
+  it('opens Ask AI about this monitor', async () => {
+    api.getMonitor.mockResolvedValue(httpMonitor())
+    const opened = vi.fn()
+    const listener = (e: Event) => opened((e as CustomEvent).detail)
+    window.addEventListener(OPEN_ASK_AI, listener)
+    const user = renderAt('/monitors/1')
+
+    await user.click(await screen.findByRole('button', { name: 'Ask AI' }))
+
+    expect(opened).toHaveBeenCalledWith({ monitorId: 1, label: 'Payments API' })
+    window.removeEventListener(OPEN_ASK_AI, listener)
+  })
+
   it('shows what an HTTP monitor expects', async () => {
     api.getMonitor.mockResolvedValue(httpMonitor())
     renderAt('/monitors/1')

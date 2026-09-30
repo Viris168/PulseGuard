@@ -41,6 +41,14 @@ public class AiConversation {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
+    /** Set when the chat was started from a monitor's page, or from an incident's (its monitor). */
+    @Column(name = "context_monitor_id")
+    private Long contextMonitorId;
+
+    /** Set when the chat was started from an incident's page. */
+    @Column(name = "context_incident_id")
+    private Long contextIncidentId;
+
     /** Bumped on every message, so the list shows recently used chats first. */
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();

@@ -4,6 +4,9 @@ import com.viris.PulseGuard.ai.AiQuotaPolicy;
 import com.viris.PulseGuard.ai.ModelStreamEvent;
 import com.viris.PulseGuard.ai.ModelStreamException;
 import com.viris.PulseGuard.ai.chat.dto.ChatStreamEvents;
+import com.viris.PulseGuard.ai.tools.ToolCallRecord;
+import com.viris.PulseGuard.ai.tools.ToolLabels;
+import com.viris.PulseGuard.ai.tools.ToolRun;
 import com.viris.PulseGuard.enumeration.MessageStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,6 +14,7 @@ import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -44,6 +48,8 @@ public class ChatTurn {
     private final Long userId;
     private final Long conversationId;
     private final Long questionId;
+    /** The lookups the model may make; null when this answer has no tools. */
+    private final ToolRun tools;
 
     private final StringBuilder text = new StringBuilder();
     private final AtomicBoolean finished = new AtomicBoolean();
@@ -53,6 +59,12 @@ public class ChatTurn {
 
     public ChatTurn(Flux<ModelStreamEvent> answer, ChatMessageStore store, AiQuotaPolicy quota,
                     Long userId, Long conversationId, Long questionId) {
+        this(answer, store, quota, userId, conversationId, questionId, null);
+    }
+
+    public ChatTurn(Flux<ModelStreamEvent> answer, ChatMessageStore store, AiQuotaPolicy quota,
+                    Long userId, Long conversationId, Long questionId, ToolRun tools) {
+        this.tools = tools;
         this.answer = answer;
         this.store = store;
         this.quota = quota;
@@ -64,6 +76,9 @@ public class ChatTurn {
     /** Starts the model; pieces go to {@code events} as they arrive. */
     public void start(ChatEvents events) {
         this.events = events;
+        if (tools != null) {
+            tools.listen(this::onLookup);
+        }
         subscription = answer.subscribe(this::onPiece, this::onFailure, this::onComplete);
     }
 
@@ -73,11 +88,27 @@ public class ChatTurn {
             return;
         }
         cancelModel();
-        store.saveAnswer(conversationId, textSoFar(), MessageStatus.PARTIAL, usage);
+        store.saveAnswer(conversationId, textSoFar(), MessageStatus.PARTIAL, usage, lookups());
         log.info("Chat answer stopped for conversationId={}", conversationId);
         if (events != null) {
             events.close();
         }
+    }
+
+    /** A lookup finished: show it ("Checked uptime for Health, …") before the text it leads to. */
+    private void onLookup(ToolCallRecord record) {
+        if (finished.get() || events == null) {
+            return;
+        }
+        try {
+            events.tool(new ChatStreamEvents.Tool(ToolLabels.label(record)));
+        } catch (IOException | IllegalStateException gone) {
+            stop(); // the browser is gone: same as pressing Stop
+        }
+    }
+
+    private List<ToolCallRecord> lookups() {
+        return tools == null ? List.of() : tools.records();
     }
 
     private void onPiece(ModelStreamEvent event) {
@@ -111,7 +142,7 @@ public class ChatTurn {
             failWithoutText(false);
             return;
         }
-        Long answerId = store.saveAnswer(conversationId, answerText, MessageStatus.COMPLETE, usage);
+        Long answerId = store.saveAnswer(conversationId, answerText, MessageStatus.COMPLETE, usage, lookups());
         send(() -> events.done(new ChatStreamEvents.Done(questionId, answerId, MessageStatus.COMPLETE,
                 quota.status(userId))));
     }
@@ -129,13 +160,13 @@ public class ChatTurn {
             failWithoutText(timedOut);
             return;
         }
-        Long answerId = store.saveAnswer(conversationId, answerText, MessageStatus.PARTIAL, usage);
+        Long answerId = store.saveAnswer(conversationId, answerText, MessageStatus.PARTIAL, usage, lookups());
         send(() -> events.error(new ChatStreamEvents.Error(CUT_OFF_MESSAGE, true, answerId)));
     }
 
     /** No answer at all: record it, and don't charge the person for it. */
     private void failWithoutText(boolean timedOut) {
-        store.saveAnswer(conversationId, "", MessageStatus.FAILED, usage);
+        store.saveAnswer(conversationId, "", MessageStatus.FAILED, usage, lookups());
         quota.release(userId);
         send(() -> events.error(new ChatStreamEvents.Error(timedOut ? TIMED_OUT_MESSAGE : FAILED_MESSAGE, false, null)));
     }
