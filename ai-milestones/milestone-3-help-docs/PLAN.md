@@ -75,7 +75,7 @@ feel. It needs the real embedding model, so it runs on demand, not in `./mvnw te
 |---|---|
 | `src/main/resources/help/*.md`: the articles | repo, reviewed like code |
 | pgvector image, V24 `help_chunks` table | compose files, Testcontainers, Flyway |
-| `EmbeddingModel` (Gemini `gemini-embedding-001`) | `spring-ai-starter-model-google-genai-embedding` |
+| `EmbeddingModel` (Gemini `gemini-embedding-2`) | `spring-ai-google-genai-embedding` (same BOM) |
 | `HelpDocsIndexer`: split, hash, embed changed chunks on startup | `ai/help/` |
 | `HelpDocsSearch`: hybrid search + threshold | `ai/help/` |
 | `search_help_docs` tool, sources on answers | `ai/tools/`, chat DTOs |
@@ -92,7 +92,7 @@ feel. It needs the real embedding model, so it runs on demand, not in `./mvnw te
 | 2 | Search on every question, or as a tool? | **A tool** (`search_help_docs`) | Reuses Milestone 2's loop and guard; no search on data questions; the model can retry with better words. |
 | 3 | Vector store | **pgvector in the existing Postgres** | No new service. Image changes from `postgres:16-alpine` to `pgvector/pgvector:pg16` (same Postgres 16, same data volume). |
 | 4 | Spring AI `PgVectorStore`, or our own table and SQL? | **Our own table (Flyway) and SQL**, Spring AI only for the `EmbeddingModel` | Flyway owns the schema (`ddl-auto=validate`); `PgVectorStore` wants to create its own. Hybrid search needs SQL anyway, and 40 lines of SQL teach more than a black box. |
-| 5 | Embedding model | **Gemini `gemini-embedding-001` at 768 dimensions**, task types `RETRIEVAL_DOCUMENT` / `RETRIEVAL_QUERY` | Same Google key and free tier as the chat. 768 (not 3,072) keeps the index small; quality loss is small at this size. **Anthropic has no embedding API**, so docs search needs `GOOGLE_AI_API_KEY` even when chat uses Claude; without it the tool is simply not offered. Verify name and dimensions in Step 1. |
+| 5 | Embedding model | **Gemini `gemini-embedding-2` at 768 dimensions** (Step 1; `-001` as fallback), task types `RETRIEVAL_DOCUMENT` / `RETRIEVAL_QUERY` | Same Google key and free tier as the chat. 768 (not 3,072) keeps the index small; quality loss is small at this size. **Anthropic has no embedding API**, so docs search needs `GOOGLE_AI_API_KEY` even when chat uses Claude; without it the tool is simply not offered. Verify name and dimensions in Step 1. |
 | 6 | When are docs embedded? | **On startup**, only chunks whose content hash changed; deleted sections removed | ~80 chunks, seconds, pennies. No Quartz job. A Postgres advisory lock stops two instances doing it at once. |
 | 7 | Hybrid search? | **Yes**: top 8 by vector + top 8 by full-text, reciprocal rank fusion, keep the best 4 above the threshold | Exact tokens ("502", "heartbeat", "pg_live_") matter a lot in a monitoring product. |
 | 8 | Show the docs to people too? | **Yes: a `/docs` page** in the app, linked from Support → Documentation and from every source line | The docs are useful without AI, and a citation should open the real text. |
@@ -143,6 +143,7 @@ CREATE TABLE help_chunks (
     anchor       VARCHAR(120) NOT NULL,          -- for /docs/slack-alerts#setting-it-up
     content      TEXT         NOT NULL,
     content_hash CHAR(64)     NOT NULL UNIQUE,   -- sha-256 of title+heading+content: re-embed only on change
+    embedding_model VARCHAR(60) NOT NULL,        -- a model change re-embeds everything (Step 1)
     embedding    vector(768)  NOT NULL,
     search_text  tsvector GENERATED ALWAYS AS
                  (to_tsvector('english', title || ' ' || heading || ' ' || content)) STORED,
@@ -205,20 +206,52 @@ Each step ends with something you can run or test.
   `vector(768)` over JDBC (how does a `float[]` bind?).
 - **Output:** a short note in this file, like Milestone 2's Step 1. Nothing committed but the note.
 
+> **Step 1 result (done, 1 Oct 2026).** Raw REST calls, then a throwaway test with Spring AI and
+> Testcontainers, both deleted:
+> - **The key offers three embedding models:** `gemini-embedding-001` (2,048-token input),
+>   `gemini-embedding-2` and `-2-preview` (8,192). All default to 3,072 dimensions and accept
+>   `outputDimensionality: 768`, `taskType` and `title`, and a batch of texts in one request.
+> - **Both real models ranked 4 of 4 test questions correctly** (Slack, 502, "cron says late",
+>   downgrade). Correct matches scored 0.63–0.82 cosine; an off-topic question ("capital of
+>   France") still scored **0.44 on `-001` and 0.53 on `-2`**. So the threshold is per model and
+>   must come from the golden set, never be hard-coded.
+> - **`-001` vectors at 768 dimensions are not normalized** (length 0.58); `-2`'s are (1.00).
+>   Use cosine distance (`<=>`, `vector_cosine_ops`), never the dot product.
+> - **Spring AI 2.0.1 works:** `spring-ai-google-genai-embedding` (new dependency, from the same
+>   BOM), `GoogleGenAiTextEmbeddingModel` with `.model(String)`, `.taskType(...)`,
+>   `.dimensions(768)`. `gemini-embedding-2` isn't in its model-name enum, but the string works.
+>   0.8–1.8 s for a batch of 4.
+> - **pgvector:** `pgvector/pgvector:pg16` is Postgres 16.15 with pgvector 0.8.6; works in
+>   Testcontainers via `asCompatibleSubstituteFor("postgres")`. `CREATE EXTENSION vector` needs
+>   a superuser, which the app's `POSTGRES_USER` is, in tests and in `deploy/docker-compose.yml`.
+>   The HNSW index is used (`Index Scan using …_embedding_idx`). A `float[]` binds with no extra
+>   library as its text form `'[0.1,0.2,…]'` plus `?::vector`.
+> - **Full-text search gotcha:** `websearch_to_tsquery('notified slack')` means *notified AND
+>   slack*, so it found nothing (the text says "alerts to Slack"). For hybrid search the
+>   full-text side must OR the words (`to_tsquery` joined with `|`) and let ranking sort it out.
+>   `'502'` matched exactly, as hoped.
+> - **`postgres:16-alpine` appears 37 times**, mostly one Testcontainers declaration per test
+>   class. Step 3 moves it into one shared constant first, then changes it once.
+>
+> **Plan changes:** the model is **`gemini-embedding-2`** (newer, 8,192-token input so chunks are
+> never cut, normalized), with `-001` as the fallback if it loses on the golden set in Step 4;
+> V24 stores the embedding model per chunk and the indexer re-embeds everything when it changes
+> (vectors from different models can't be compared); the full-text side ORs the query words.
+
 ### Step 2: Write the help docs (2–3 days)
 - The ~16 articles in `src/main/resources/help/`, drafted from the code, reviewed by you.
 - **Test:** `HelpDocsFactsTest`: plan limits in `plans-and-limits.md` match `PlanLimits`; every
   article has a title, a summary and at least one `##` section.
 
 ### Step 3: pgvector, V24 and the indexer (1 day)
-- Image change in `docker-compose.yml`, `deploy/docker-compose.yml` and every Testcontainers
-  test; V24; `HelpDocsIndexer` (split by `##`, hash, embed only new or changed chunks, delete
+- Image change in `docker-compose.yml`, `deploy/docker-compose.yml`, and the Testcontainers
+  tests (first moved into one shared constant: 37 places today); V24; `HelpDocsIndexer` (split by `##`, hash, embed only new or changed chunks, delete
   removed ones, advisory lock).
 - **Test (Testcontainers, fake embedding model):** first start embeds all; second start embeds
   nothing; editing one section re-embeds only that chunk; deleting an article removes its chunks.
 
 ### Step 4: Search and the golden set (1.5 days)
-- `HelpDocsSearch`: hybrid query, reciprocal rank fusion, threshold. `help-eval.yaml` with ~30
+- `HelpDocsSearch`: hybrid query (full-text side ORs the words, Step 1), reciprocal rank fusion, threshold. `help-eval.yaml` with ~30
   questions and the article each should find; an eval test tagged `eval` (real Gemini, run on
   demand: `./mvnw test -Dgroups=eval`) that prints hit@4 and every miss.
 - **Test (fake embeddings):** "502" finds the status-codes article through full-text alone;
