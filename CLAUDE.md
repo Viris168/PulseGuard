@@ -67,13 +67,14 @@ src/main/java/com/viris/PulseGuard/
 ├── billing/       # StripeService, StripeWebhookController, PlanLimits
 ├── stats/         # rollup and retention jobs, StatsController
 ├── statuspage/    # public status page
-├── ai/            # ModelCaller, incident summaries, Ask AI access/quota/snapshot; chat/ = conversations + streaming; tools/ = Ask AI's lookups
+├── ai/            # ModelCaller, incident summaries, Ask AI access/quota/snapshot; chat/ = conversations + streaming; tools/ = Ask AI's lookups; help/ = help docs search and the /docs API
 └── common/        # exceptions, GlobalExceptionHandler, config properties
 
 src/main/resources/
 ├── application.yml
 ├── application-dev.yml
 ├── application-prod.yml
+├── help/          # the help docs: one Markdown article per file, shown on /docs and searched by Ask AI
 └── db/migration/  # Flyway: V1__init.sql, V2__..., etc.
 ```
 
@@ -121,6 +122,7 @@ Entities live in `model/`, enums in `enumeration/`, and repositories in `reposit
    - Test with a fake `ChatModel` bean; tests never call a real provider (`spring.ai.model.chat=none`).
    - **Chat streaming** (`POST /api/ai/conversations/{id}/messages`, Server-Sent Events): every refusal (ownership, consent, 50-message cap, quota) is thrown before the stream opens, so it is plain JSON. No database transaction is held while the model writes (`ChatMessageStore` does short ones). `ChatTurn` saves the answer exactly once, however it ends (`COMPLETE`, `PARTIAL` on Stop or disconnect, `FAILED`). `SecurityConfig` permits the `ASYNC` dispatch that finishes a stream; without it every stream ends in Access Denied.
    - **Tools** (`ai/tools/`, see `AI_MILESTONE_2.md`): read-only only; nothing the model calls may change data. Whose data a tool sees comes from the server-built `ToolScope` in the `ToolContext`, never from the model's arguments, and a monitor is found by name among the user's AI-shared monitors only (missing, unshared and other users' monitors get the same "not found"). Dates are clamped to the plan's history. Every tool is wrapped by `GuardedToolCallback`: at most `pulseguard.ai.max-tool-calls` (5) per question, `tool-timeout` each, exceptions become a safe message, results are cut to 2,000 characters, fenced in `<tool_result>` and sent as a JSON object (`{"result": …}`) because Gemini's client parses every tool result as JSON. Every call is saved to `ai_tool_calls` and shown to the user as a "Checked …" line (`ToolLabels`). `ModelCaller.stream` runs the tool loop itself (Spring AI 2.0 doesn't); each tool round is one more model request. A new tool needs a Testcontainers test for another user's same-named monitor.
+   - **Help docs** (`ai/help/`, `src/main/resources/help/`, see `AI_MILESTONE_3.md`): each article has front matter (`title`, `summary`, `describes` = the code it explains) and `##` sections that each make sense alone, because each section is one search chunk and its heading's anchor is its `/docs` link. Changing code an article `describes` means updating the article; `HelpDocsFactsTest` checks the plan numbers against `PlanLimits`. Sections are embedded into `help_chunks` (pgvector, `vector(768)`) on startup, only new or changed ones, and only when `PULSEGUARD_AI_EMBEDDING_PROVIDER=google-genai`; changing the embedding model re-embeds everything. Every embedding request sets model and dimensions explicitly (`HelpEmbeddings`): Spring AI silently falls back to another model otherwise. Search is meaning (cosine) plus exact words (full-text, words OR-ed) merged by rank; the model, not a cut-off, decides whether a section answers. Change search settings only with the golden-set eval (`HelpDocsSearchEvalTest`, `-Deval=true`, real Gemini). Answers render as Markdown with the model's own links and images shown as text; the only links are sources read from the tool result's `[n] Title › Heading (/docs/…)` lines.
 
 ## Security and Secrets
 

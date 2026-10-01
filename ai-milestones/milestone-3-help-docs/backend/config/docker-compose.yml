@@ -1,0 +1,73 @@
+services:
+  postgres:
+    # pgvector: Postgres 16 plus the vector extension (Ask AI help docs, AI_MILESTONE_3.md).
+    # Debian-based, unlike the old postgres:16-alpine: see DEPLOY.md before switching an
+    # existing database (text indexes need a REINDEX).
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: pulseguard
+      POSTGRES_USER: pulseguard
+      POSTGRES_PASSWORD: pulseguard
+    ports:
+      - "55440:5432"
+    volumes:
+      - pulseguard-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pulseguard -d pulseguard"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - pulseguard-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Fake SMTP server for local development: catches every email, sends none.
+  # Read them at http://localhost:8025.
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"   # SMTP: the app sends here
+      - "8025:8025"   # web UI: read the emails here
+
+  # The production image, run the production way against the services above. Not started by a
+  # plain `docker compose up`; use: docker compose --profile app up --build
+  # Then open http://localhost:8080 (stop any ./mvnw spring-boot:run first: same port).
+  app:
+    profiles: ["app"]
+    build: .
+    ports:
+      - "8080:8080"
+    # Secrets and settings from .env, then container-network addresses on top of it.
+    env_file: .env
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/pulseguard
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      SPRING_MAIL_HOST: mailpit
+      SPRING_MAIL_PORT: "1025"
+      # Mailpit takes mail without a login or TLS; real SMTP in production needs both.
+      PULSEGUARD_MAIL_SMTP_AUTH: "false"
+      PULSEGUARD_MAIL_STARTTLS_REQUIRED: "false"
+      # One origin now: the app and its API are both on :8080.
+      PULSEGUARD_APP_BASE_URL: http://localhost:8080
+      PULSEGUARD_PING_BASE_URL: http://localhost:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+
+volumes:
+  pulseguard-postgres:
+  pulseguard-redis:

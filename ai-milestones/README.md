@@ -9,7 +9,7 @@ One folder per milestone, so you can study how the AI features were built, step 
 | [`milestone-0.5-ask-ai/`](milestone-0.5-ask-ai/) | The Ask AI panel answers one question from your real data | ✅ Built |
 | [`milestone-1-chat/`](milestone-1-chat/) | Ask AI becomes a chat: history, streaming, Stop | ✅ Built (production streaming check after deploy) |
 | [`milestone-2-tools/`](milestone-2-tools/) | Ask AI looks things up: any date range, incident details, "Ask AI about this" | ✅ Built (tried on real Gemini) |
-| [`milestone-3-help-docs/`](milestone-3-help-docs/) | Ask AI answers "how do I…" from PulseGuard's help docs (RAG), with sources | 📋 Plan only |
+| [`milestone-3-help-docs/`](milestone-3-help-docs/) | Help docs on a public `/docs` page; Ask AI answers "how do I…" from them (RAG), with linked sources | ✅ Built (tried on real Gemini) |
 
 ## How to use it
 
@@ -20,7 +20,7 @@ One folder per milestone, so you can study how the AI features were built, step 
 
 ## Important
 
-- **These are copies**, taken when each milestone was done (Milestone 2: 2026-10-01). The real, running code lives in `src/` and
+- **These are copies**, taken when each milestone was done (Milestones 2 and 3: 2026-10-01). The real, running code lives in `src/` and
   `frontend/src/`. When the code changes later, these copies don't. That's on purpose: each
   folder shows the code as it was when that milestone was done.
 - Some files appear in more than one milestone (e.g. `ModelCaller.java`, `PromptText.java`),

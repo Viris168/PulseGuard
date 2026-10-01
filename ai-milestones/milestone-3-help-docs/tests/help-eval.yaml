@@ -1,0 +1,81 @@
+# Golden set for Ask AI's help-docs search (AI_MILESTONE_3.md, Step 4). Run with real Gemini:
+#   GOOGLE_AI_API_KEY=… ./mvnw test -Dtest=HelpDocsSearchEvalTest -Deval=true
+# Each question lists every section that correctly answers it ("article#anchor"), or just the
+# article when any of its sections will do. A hit is any of them in the top results (hit@4).
+# "expect: []" means the docs don't cover it: nothing should come back.
+# Phrased the way customers ask, not copied from headings: that's what makes the test honest.
+
+answerable:
+  - q: How do I get notified in Slack when my API goes down?
+    expect: [slack-alerts#setting-it-up]
+  - q: Why didn't I get an email when my site went down?
+    expect: [email-alerts#not-getting-alerts, email-alerts#your-accounts-address, alert-delivery#who-gets-an-alert]
+  - q: My cron job monitor says late, what does that mean?
+    expect: [heartbeat-monitors#when-it-goes-down, how-incidents-work#heartbeat-monitors]
+  - q: What does 502 mean?
+    expect: [status-codes#5xx-the-server-failed]
+  - q: Can I monitor localhost or a server on my home network?
+    expect: [getting-started#addresses-you-cant-monitor, troubleshooting-checks#connection-the-connection-failed]
+  - q: Why do I only get alerted after a few minutes instead of straight away?
+    expect: [how-incidents-work#from-up-to-down-three-failures-in-a-row, http-monitors#interval-and-timeout]
+  - q: How many monitors can I have on the free plan?
+    expect: [plans-and-limits#what-each-plan-includes]
+  - q: What happens to my monitors if I downgrade from Pro to Free?
+    expect: [plans-and-limits#downgrading]
+  - q: My card expired and the payment failed, will I lose my plan?
+    expect: [billing#if-a-payment-fails]
+  - q: Where can I download my invoices?
+    expect: [billing#card-invoices-and-receipts]
+  - q: How long do you keep my check history?
+    expect: [history-and-retention, plans-and-limits#history]
+  - q: How do I send an Authorization header with my check?
+    expect: [http-monitors#headers]
+  - q: Why can't I see the value of my API key header after saving?
+    expect: [http-monitors#headers]
+  - q: My endpoint returns 204, how do I stop it counting as down?
+    expect: [status-codes#when-the-code-is-normal-for-you, http-monitors#expected-status-codes, status-codes#2xx-success]
+  - q: The check says 301, but the site works fine in my browser
+    expect: [status-codes#3xx-redirects, troubleshooting-checks#status-mismatch-an-unexpected-status-code, troubleshooting-checks#it-works-in-my-browser, how-incidents-work#what-counts-as-a-failed-check]
+  - q: My SSL certificate expired, what will PulseGuard show?
+    expect: [troubleshooting-checks#ssl-the-certificate-couldnt-be-verified]
+  - q: What User-Agent do your checks use, so I can allow it in my firewall?
+    expect: [http-monitors#headers, troubleshooting-checks#connection-the-connection-failed, status-codes#4xx-the-request-was-refused]
+  - q: How do I make a public status page for my customers?
+    expect: [status-pages#creating-your-page]
+  - q: Why does my status page say operational when my dashboard shows failing?
+    expect: [status-pages#why-a-failing-check-doesnt-show]
+  - q: How do I use an API key from GitHub Actions?
+    expect: [api-keys#using-a-key, api-keys#creating-a-key]
+  - q: I changed my password and now my CI pipeline gets 401
+    expect: [account#changing-your-password, api-keys]
+  - q: How do I change the email address I log in with?
+    expect: [account#changing-your-name-or-email-address]
+  - q: I forgot my password
+    expect: [account#forgot-your-password]
+  - q: How do I delete my account and stop being charged?
+    expect: [account#deleting-your-account, billing#deleting-your-account, billing#cancelling]
+  - q: Does Ask AI send my data to Google?
+    expect: [ask-ai#privacy-and-accuracy]
+  - q: How many Ask AI questions do I get per day?
+    expect: [ask-ai#how-many-questions, plans-and-limits#ask-ai-questions]
+  - q: What happens to an open incident if I pause the monitor?
+    expect: [how-incidents-work#pausing-or-deleting-a-monitor, heartbeat-monitors#pausing-a-heartbeat]
+  - q: Do you retry alerts if Slack is down?
+    expect: [alert-delivery#when-delivery-fails, slack-alerts#when-slack-doesnt-answer]
+  - q: How do I add my teammate's email for alerts?
+    expect: [email-alerts#adding-more-addresses]
+  - q: What's the difference between a heartbeat monitor and a normal monitor?
+    expect: [getting-started#add-your-first-monitor, heartbeat-monitors]
+  - q: The check keeps timing out but the server is up
+    expect: [troubleshooting-checks#timeout-no-answer-in-time, http-monitors#interval-and-timeout]
+  - q: How do I ping the heartbeat URL from a bash script?
+    expect: [heartbeat-monitors#sending-pings]
+
+# Nothing in the docs answers these: search should come back empty (or Ask AI should say so).
+unanswerable:
+  - What's the capital of France?
+  - How do I monitor my Postgres database's replication lag?
+  - Do you have an iPhone app?
+  - Can you monitor from multiple regions?
+  - How do I set up SMS alerts?
+  - Write me a poem about uptime

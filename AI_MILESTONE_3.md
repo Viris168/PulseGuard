@@ -441,17 +441,47 @@ Each step ends with something you can run or test.
   cover ("How do I monitor a database?") and mixed ones (data + docs).
 - Update `CLAUDE.md`, `AI_PLAN.md`, `ROADMAP.md`; copy into `ai-milestones/milestone-3-help-docs/`.
 
+> **Step 7 result (done, 1 Oct 2026).**
+> - **Eval with real Gemini, both models, same settings (0.60, 8/8):** `gemini-embedding-2`
+>   hit@4 31/32 (97%), hit@1 25/32 (78%), MRR 0.86, uncovered empty 1/6: exactly Step 4's
+>   numbers, so nothing drifted. `gemini-embedding-001`: hit@4 97%, hit@1 24/32 (75%), MRR 0.83,
+>   uncovered empty 1/6, same single miss. `gemini-embedding-2` stays (also: longer input,
+>   normalized vectors).
+> - **11 questions by hand** (`gemini-3.1-flash-lite`, each in a new chat, 1 docs search each):
+>   - *Docs:* heartbeat for a nightly backup (steps, the crontab line, `&&`, cited [1]–[4]);
+>     502; a check timing out (load, lighter endpoint, timeout up to 30 s: matches the docs);
+>     making the status page public; deleting the account (the list matches `account.md`
+>     word for word). All answered from the docs with sources.
+>   - *Not covered:* SMS and PagerDuty: "The help docs don't mention…", then what is supported
+>     (email, Slack on Pro/Business) and "contact support". "How do I monitor a database?":
+>     a fair inference from the cited section (HTTP health endpoint or heartbeat), plus the
+>     general tip that the endpoint should run a quick query, which is beyond the docs.
+>   - *Data only:* "Was Health up all week?" answered from the data, no search, no sources.
+>   - *Mixed:* "How many monitors can I add, and how many do I have?" searched the docs for the
+>     limits (3/25/unlimited, cited) and took "1 shared monitor" from the data, saying it only
+>     sees shared monitors; it didn't know the plan (the snapshot doesn't include it), so it
+>     listed all three. "Is Health failing right now, and what would its error mean?" answered
+>     the data part, then explained 401/503 from general knowledge **without searching the
+>     docs**, and told the user to search the help docs. Worth a prompt tweak later: search the
+>     docs for error meanings even when the question is hypothetical.
+> - No answer used two docs searches, so Part B's numbering gap didn't come up.
+> - Docs updated: `CLAUDE.md` (the help-docs rule, `ai/help/` and `help/` in the layout),
+>   `AI_PLAN.md` (Milestone 3 built), `ROADMAP.md` (help docs in §4; "maybe later" is now
+>   customer documents and the widget). Learning folder: `ai-milestones/milestone-3-help-docs/`.
+
 ---
 
 ## Done when
 
-- [ ] Help docs exist, are reviewed, and are readable on `/docs` without AI.
-- [ ] "How do I…" questions are answered from the docs, with sources that link to them.
-- [ ] Questions the docs don't cover get an honest "not in the docs", not a guess.
-- [ ] hit@4 ≥ 90% on the golden set with the real embedding model.
-- [ ] Plan numbers in the docs are checked against `PlanLimits` by a test.
-- [ ] Changing one section re-embeds only that section.
-- [ ] `./mvnw test` and `npm test` green.
+- [x] Help docs exist and are readable on `/docs` without AI (signed out too). Your review of
+      all 16 articles isn't recorded here: tick when done.
+- [x] "How do I…" questions are answered from the docs, with sources that link to them.
+- [x] Questions the docs don't cover get an honest "not in the docs", not a guess (SMS,
+      PagerDuty; the database question got a fair workaround from the docs).
+- [x] hit@4 ≥ 90% on the golden set with the real embedding model (97%).
+- [x] Plan numbers in the docs are checked against `PlanLimits` by a test.
+- [x] Changing one section re-embeds only that section.
+- [x] `./mvnw test` and `npm test` green (one flaky email test, unrelated, passes on rerun).
 
 ## Risks to watch
 

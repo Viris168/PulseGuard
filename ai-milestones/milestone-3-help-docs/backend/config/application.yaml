@@ -1,0 +1,244 @@
+spring:
+  application:
+    name: PulseGuard
+  # Loads .env from the working directory when present; ignored when it is not.
+  config:
+    import: optional:file:.env[.properties]
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+  quartz:
+    job-store-type: jdbc
+    jdbc:
+      # V5__quartz_tables.sql creates the qrtz_* tables; Flyway owns the schema.
+      initialize-schema: never
+    auto-startup: ${PULSEGUARD_SCHEDULER_ENABLED}
+    # Let in-flight checks finish and save their rows instead of being cut off mid-request.
+    wait-for-jobs-to-complete-on-shutdown: true
+    overwrite-existing-jobs: true
+    properties:
+      org.quartz.scheduler.instanceName: pulseguard
+      org.quartz.scheduler.instanceId: AUTO
+      org.quartz.jobStore.driverDelegateClass: org.quartz.impl.jdbcjobstore.PostgreSQLDelegate
+      # Row locks in qrtz_locks guarantee a trigger fires on exactly one instance.
+      org.quartz.jobStore.isClustered: true
+      org.quartz.jobStore.clusterCheckinInterval: 15000
+      # JobDataMap holds strings only (the monitor id), never Java-serialized blobs.
+      org.quartz.jobStore.useProperties: true
+      # A fire later than this counts as missed and gets the trigger's misfire policy.
+      org.quartz.jobStore.misfireThreshold: 60000
+      # Checks block for up to timeoutMs + connect + grace. Throughput is about
+      # threadCount / worst-case-seconds checks per second: 20 threads at 10s is ~2/s,
+      # or ~600 monitors on a 5-minute interval per instance.
+      org.quartz.threadPool.threadCount: ${PULSEGUARD_SCHEDULER_THREADS}
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST}
+      port: ${SPRING_DATA_REDIS_PORT}
+      # Short, because auth reads Redis on the request path and fails open on error.
+      timeout: ${SPRING_DATA_REDIS_TIMEOUT}
+      connect-timeout: ${SPRING_DATA_REDIS_TIMEOUT}
+  mail:
+    # Mailpit locally; Resend/SendGrid SMTP in production.
+    host: ${SPRING_MAIL_HOST}
+    port: ${SPRING_MAIL_PORT}
+    username: ${SPRING_MAIL_USERNAME:}
+    password: ${SPRING_MAIL_PASSWORD:}
+    properties:
+      # JavaMail waits forever by default; a silent SMTP server would pin every alert thread.
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 10000
+      mail.smtp.writetimeout: 10000
+  cache:
+    # Dashboard stats (see StatsCacheConfig). Tests switch this to "none".
+    type: redis
+    cache-names: monitorStats,publicStatusPages
+  ai:
+    model:
+      # Which chat model writes incident summaries and Ask AI answers: "none" (AI off, the default), "anthropic"
+      # (needs ANTHROPIC_API_KEY) or "google-genai" (Gemini, needs GOOGLE_AI_API_KEY from Google
+      # AI Studio). With "none" nothing is sent anywhere and the dashboard shows its rule-based
+      # summary. Only the selected provider's beans are created.
+      chat: ${PULSEGUARD_AI_PROVIDER:none}
+      # Which model embeds the help docs for Ask AI's docs search: "none" (search off, the default)
+      # or "google-genai" (needs GOOGLE_AI_API_KEY). Separate from chat: Claude has no embeddings.
+      embedding:
+        text: ${PULSEGUARD_AI_EMBEDDING_PROVIDER:none}
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY:}
+      # The page-view deadline is pulseguard.ai.timeout, for every provider; this only stops
+      # the HTTP client from waiting past it.
+      timeout: 20s
+      max-retries: 1
+      chat:
+        options:
+          # The cheap, fast tier: summaries and answers are a few sentences from given facts.
+          model: ${PULSEGUARD_AI_SUMMARY_MODEL:claude-haiku-4-5}
+          max-tokens: 300
+          temperature: 0.2
+    google:
+      genai:
+        # An AI Studio key (aistudio.google.com), not Vertex AI: no GCP project needed.
+        api-key: ${GOOGLE_AI_API_KEY:}
+        chat:
+          options:
+            # Google retires model names often; list what your key can use with
+            # curl -H "x-goog-api-key: $GOOGLE_AI_API_KEY" https://generativelanguage.googleapis.com/v1beta/models
+            model: ${PULSEGUARD_AI_GOOGLE_MODEL:gemini-3.1-flash-lite}
+            # Gemini counts its hidden reasoning tokens against this cap, so it is higher than the
+            # answers need (the prompts ask for ~120 words); otherwise answers could be cut short.
+            max-output-tokens: 1024
+            temperature: 0.2
+            # Gemini 3 models take a level, not a token budget (thinking-budget: 0 is rejected).
+            # A few sentences from given facts need little reasoning.
+            thinking-level: LOW
+        embedding:
+          api-key: ${GOOGLE_AI_API_KEY:}
+          text:
+            options:
+              # AI_MILESTONE_3.md Step 1: newer than -001, 8,192-token input, normalized vectors.
+              # Changing the model re-embeds every chunk on the next start (the hash includes it).
+              model: ${PULSEGUARD_AI_EMBEDDING_MODEL:gemini-embedding-2}
+              # Must match help_chunks.embedding's vector(768) (V24).
+              dimensions: 768
+              # For indexing; searches ask with RETRIEVAL_QUERY per request.
+              task-type: RETRIEVAL_DOCUMENT
+  task:
+    execution:
+      pool:
+        # @Async alert sending. Bounded: Boot's default queue is unlimited, so an SMTP outage
+        # would pile alerts up in memory without end.
+        core-size: 2
+        max-size: 4
+        queue-capacity: 500
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # health is public; the rest require ADMIN (SecurityConfig). Never "*": env and
+        # heapdump would leak configuration and memory contents.
+        include: health,metrics,quartz
+  health:
+    mail:
+      # An SMTP outage delays alerts; it must not mark the app DOWN and get it restarted.
+      enabled: false
+
+pulseguard:
+  app:
+    # The frontend; alerts link to its pages. Same value as the Stripe redirects use.
+    base-url: ${PULSEGUARD_APP_BASE_URL}
+  jwt:
+    # Base64-encoded HMAC-SHA key, >= 256 bits. Generate: openssl rand -base64 48
+    secret: ${PULSEGUARD_JWT_SECRET}
+    # Set during a key rotation; tokens signed with it still verify. Clear when refresh tokens age out.
+    previous-secret: ${PULSEGUARD_JWT_PREVIOUS_SECRET:}
+    issuer: ${PULSEGUARD_JWT_ISSUER}
+    audience: ${PULSEGUARD_JWT_AUDIENCE}
+    # Short: an access token cannot be revoked without a denylist lookup on every request.
+    access-expiration: ${PULSEGUARD_JWT_ACCESS_EXPIRATION}
+    # Long, but rotated and revoked on every use.
+    refresh-expiration: ${PULSEGUARD_JWT_REFRESH_EXPIRATION}
+    clock-skew: ${PULSEGUARD_JWT_CLOCK_SKEW}
+  login:
+    max-attempts: ${PULSEGUARD_LOGIN_MAX_ATTEMPTS}
+    max-attempts-per-ip: ${PULSEGUARD_LOGIN_MAX_ATTEMPTS_PER_IP}
+    window: ${PULSEGUARD_LOGIN_WINDOW}
+  check:
+    # Handshake only; the response is bounded per monitor by its own timeout_ms.
+    connect-timeout: ${PULSEGUARD_CHECK_CONNECT_TIMEOUT}
+    # Slack on top of the monitor timeout for the hard ceiling on one check.
+    grace-timeout: ${PULSEGUARD_CHECK_GRACE_TIMEOUT}
+    user-agent: ${PULSEGUARD_CHECK_USER_AGENT}
+    max-error-length: ${PULSEGUARD_CHECK_MAX_ERROR_LENGTH}
+  scheduling:
+    # Random delay before a monitor's first check (capped by its interval) to spread load.
+    jitter: ${PULSEGUARD_SCHEDULER_JITTER}
+    # Re-sync Quartz jobs with active monitors at startup; the database is the source of truth.
+    reconcile-on-startup: ${PULSEGUARD_SCHEDULER_RECONCILE_ON_STARTUP}
+  incident:
+    # Consecutive failures before DOWN + incident; must be >= 2 (never alert on one blip).
+    failure-threshold: ${PULSEGUARD_INCIDENT_FAILURE_THRESHOLD}
+    # Consecutive passes before a DOWN monitor is UP again and its incident resolves.
+    recovery-threshold: ${PULSEGUARD_INCIDENT_RECOVERY_THRESHOLD}
+  notification:
+    # Sender shown on alert emails.
+    from: ${PULSEGUARD_NOTIFICATION_FROM}
+    retry:
+      # Wait before each retry of a failed alert; three retries over about 36 minutes.
+      backoff: ${PULSEGUARD_ALERT_RETRY_BACKOFF:1m,5m,30m}
+      sweep-interval: ${PULSEGUARD_ALERT_RETRY_SWEEP_INTERVAL:30s}
+    slack:
+      # Alerts share a small pool (task.execution above); a slow Slack must not hold it.
+      connect-timeout: 5s
+      read-timeout: 10s
+  stats:
+    # How long cached dashboard stats are served; checks run at most every 60s.
+    cache-ttl: ${PULSEGUARD_STATS_CACHE_TTL}
+  account-email:
+    # How long emailed links work: "forgot password", and verification / email change.
+    reset-token-ttl: ${PULSEGUARD_PASSWORD_RESET_TTL:30m}
+    verify-token-ttl: ${PULSEGUARD_EMAIL_VERIFY_TTL:24h}
+    # Emails of one kind per address, and requests per IP (all kinds), within the window.
+    max-per-email: ${PULSEGUARD_ACCOUNT_EMAIL_MAX_PER_EMAIL:3}
+    max-per-ip: ${PULSEGUARD_ACCOUNT_EMAIL_MAX_PER_IP:10}
+    window: ${PULSEGUARD_ACCOUNT_EMAIL_WINDOW:1h}
+  heartbeat:
+    # Public origin jobs reach the API at; ping URLs are {this}/api/ping/{token}.
+    ping-base-url: ${PULSEGUARD_PING_BASE_URL:http://localhost:8080}
+    # How often overdue heartbeats are looked for: the worst-case delay before a miss is noticed.
+    sweep-interval: ${PULSEGUARD_HEARTBEAT_SWEEP_INTERVAL:30s}
+  housekeeping:
+    # Nightly: summarise yesterday's checks into check_daily_stats, then delete history past
+    # each plan's limit. Raw checks and pings are kept raw-check-days at most (>= 60: the
+    # dashboard reads 30 days plus the 30 before); summaries for the plan's full history.
+    enabled: ${PULSEGUARD_HOUSEKEEPING_ENABLED:true}
+    cron: "0 15 3 * * ?"
+    raw-check-days: 62
+    batch-size: 5000
+  status-page:
+    # How long a rendered public status page is served; saving the page evicts it at once.
+    cache-ttl: ${PULSEGUARD_STATUS_PAGE_CACHE_TTL:60s}
+  ai:
+    # An open incident's summary is rewritten at most this often; a resolved one is written once.
+    open-summary-ttl: ${PULSEGUARD_AI_OPEN_SUMMARY_TTL:10m}
+    # A summary is waited on by a page view: past this, the page shows its rule-based summary.
+    # Enforced here for every provider, since not all of them expose a client timeout.
+    timeout: ${PULSEGUARD_AI_TIMEOUT:20s}
+    # Ask AI chat: the longest one streamed answer may take in total (the first words must still
+    # arrive within the timeout above).
+    stream-timeout: ${PULSEGUARD_AI_STREAM_TIMEOUT:90s}
+    # Ask AI questions per day on plans sold as unlimited (Business). Free and Pro limits are in PlanLimits.
+    fair-use-daily-questions: ${PULSEGUARD_AI_FAIR_USE_DAILY_QUESTIONS:500}
+    # Ask AI tools (AI_MILESTONE_2.md): lookups per question, and the longest one may take.
+    max-tool-calls: ${PULSEGUARD_AI_MAX_TOOL_CALLS:5}
+    tool-timeout: ${PULSEGUARD_AI_TOOL_TIMEOUT:10s}
+    # Ask AI's help-docs search (AI_MILESTONE_3.md): tuned with the golden set, see HelpDocsProperties.
+    help:
+      vector-candidates: 8
+      text-candidates: 8
+      max-results: 4
+      min-similarity: 0.60
+      rrf-k: 60
+  stripe:
+    # Test-mode keys locally (sk_test_...). The webhook secret comes from `stripe listen` in dev
+    # and from the dashboard's endpoint settings in production.
+    secret-key: ${STRIPE_SECRET_KEY}
+    webhook-secret: ${STRIPE_WEBHOOK_SECRET}
+    # Monthly recurring prices from the Stripe product catalog (price_...).
+    prices:
+      PRO: ${STRIPE_PRICE_PRO}
+      BUSINESS: ${STRIPE_PRICE_BUSINESS}
+    # The frontend; Checkout and the Customer Portal redirect back here.
+    app-base-url: ${PULSEGUARD_APP_BASE_URL}
+    # A billing request must not hang a web thread on a slow Stripe; the SDK retries on its own.
+    connect-timeout: 5s
+    read-timeout: 20s
+    max-network-retries: 2

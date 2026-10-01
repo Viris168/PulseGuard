@@ -340,7 +340,8 @@ Each step ends with something you can run or test.
 
 > **Step 6 plan (written 1 Oct, to build 2 Oct).** Three parts, in this order.
 >
-> **Decisions to confirm first**
+> **Decisions to confirm first** (both confirmed 1 Oct: docs are public; add `react-markdown` +
+> `remark-gfm`)
 > 1. **Public docs?** Recommendation: **yes**, like `/status/:slug`: readable signed out (good for
 >    people deciding whether to sign up, and for search engines), with the app's sidebar when
 >    signed in. Needs `GET /api/help` and `GET /api/help/{slug}` permitted in `SecurityConfig`
@@ -391,23 +392,96 @@ Each step ends with something you can run or test.
 >
 > **Then, in the browser:** open `/docs` signed out and in, follow a source link from a real
 > answer, check dark mode and a phone-width screen. About one day.
+>
+> **Part A done (1 Oct).**
+> - `HelpController` (`GET /api/help`, `GET /api/help/{slug}`, 404 `HelpArticleNotFoundException`),
+>   public in `SecurityConfig` and CLAUDE.md, cached 5 minutes; `HelpArticles.Article` gained
+>   `body` and `find`. Tested by `HelpApiIntegrationTest` (signed out, 404, POST still closed).
+> - `react-markdown` + `remark-gfm` in `components/ui/Markdown.tsx` (`anchors` gives `##` headings
+>   ids via `lib/helpAnchor.ts`); `pages/docs/DocsPage` (groups in `lib/docGroups.ts`, unknown
+>   slugs under "More") and `DocArticlePage` (scrolls to the hash; "Ask AI" signed in, "Start free"
+>   signed out). `SignedInOrPublic` picks `AppLayout` or `PublicDocsLayout`. Support →
+>   Documentation is a link; `SHOW_ASK_AI` opens the panel without starting a chat.
+> - `docs.test.tsx` (11 tests) reads the real articles and `help-eval.yaml` through Vite (allowed
+>   in `vite.config.ts` under Vitest only): every eval anchor exists on the page.
+> - Browser: list, article, anchor scroll, code block, dark at phone width checked signed in;
+>   signed out checked by API (no token: 200/200/404, other APIs 401) and by the tests, since the
+>   pane can't open a second origin to hold a signed-out session.
+>
+> **Part B done (1 Oct).**
+> - `ai.ts`: `HelpSource`, `AiMessage.sources`, `onTool(label, sources)`. `lib/citations.ts`:
+>   `splitCitations` ("[1]", "[1, 3]", "[2][3]"; "[1](…)" is a link, not a citation) and
+>   `mergeSources` (each search's sections in order, repeats dropped, as ConversationService saves
+>   them). The panel shows numbered "Sources" links under an answer, and citations as small links;
+>   a number with no source, or a source outside `/docs/`, stays plain text.
+> - Fix found in the browser: `/docs` had its own `AppLayout`, so following a source remounted the
+>   layout and closed the panel, losing the chat. The docs and app routes now share one layout
+>   route (`SignedInOrPublic`, with `RequireAuth` inside it).
+> - Known gap: two docs searches in one answer each number from [1], so "[1]" is ambiguous there;
+>   the panel numbers the merged list. Fix on the backend (number on from the previous search) if
+>   it shows up in Step 7's hand-asked questions.
+> - Tests: 6 new (stream sources, numbered list + click keeps the panel open, citation links and
+>   `[9]`/Markdown link as text, no sources → plain, reopened chat). Checked with a real answer.
+>
+> **Part C done (1 Oct).**
+> - Answers render through `Markdown` (`compact`, `links={false}`); `RichText` is gone. Links the
+>   model writes show as their text and images as their alt text, so nothing is followed or
+>   loaded. In a bubble a single line break is kept (`whitespace-pre-line`), as `RichText` did.
+> - Citations are a small remark plugin in `Markdown` (`renderCitation`): text nodes become
+>   `<cite>` elements, so "[1]" links inside lists, bold and tables, but not inside code or a
+>   link. The model can't write `<cite>` itself: raw HTML is never rendered.
+> - The prompt's "plain text" rule is unchanged; this only makes the odd list or backtick tidy.
+> - Tests: 3 new (list + code + table + code block + kept line break; model links and images not
+>   followed or loaded; citations in a list and bold, not in code). The Part B test for "[1](…)"
+>   now expects the link's text. Checked on the real Slack answer: numbered list, the webhook URL
+>   as code, citations linked; light, dark, and phone width.
 
 ### Step 7: Try it for real, docs, learning folder (1 day)
 - Run the eval with real Gemini; ask ~10 questions by hand, including ones the docs don't
   cover ("How do I monitor a database?") and mixed ones (data + docs).
 - Update `CLAUDE.md`, `AI_PLAN.md`, `ROADMAP.md`; copy into `ai-milestones/milestone-3-help-docs/`.
 
+> **Step 7 result (done, 1 Oct 2026).**
+> - **Eval with real Gemini, both models, same settings (0.60, 8/8):** `gemini-embedding-2`
+>   hit@4 31/32 (97%), hit@1 25/32 (78%), MRR 0.86, uncovered empty 1/6: exactly Step 4's
+>   numbers, so nothing drifted. `gemini-embedding-001`: hit@4 97%, hit@1 24/32 (75%), MRR 0.83,
+>   uncovered empty 1/6, same single miss. `gemini-embedding-2` stays (also: longer input,
+>   normalized vectors).
+> - **11 questions by hand** (`gemini-3.1-flash-lite`, each in a new chat, 1 docs search each):
+>   - *Docs:* heartbeat for a nightly backup (steps, the crontab line, `&&`, cited [1]–[4]);
+>     502; a check timing out (load, lighter endpoint, timeout up to 30 s: matches the docs);
+>     making the status page public; deleting the account (the list matches `account.md`
+>     word for word). All answered from the docs with sources.
+>   - *Not covered:* SMS and PagerDuty: "The help docs don't mention…", then what is supported
+>     (email, Slack on Pro/Business) and "contact support". "How do I monitor a database?":
+>     a fair inference from the cited section (HTTP health endpoint or heartbeat), plus the
+>     general tip that the endpoint should run a quick query, which is beyond the docs.
+>   - *Data only:* "Was Health up all week?" answered from the data, no search, no sources.
+>   - *Mixed:* "How many monitors can I add, and how many do I have?" searched the docs for the
+>     limits (3/25/unlimited, cited) and took "1 shared monitor" from the data, saying it only
+>     sees shared monitors; it didn't know the plan (the snapshot doesn't include it), so it
+>     listed all three. "Is Health failing right now, and what would its error mean?" answered
+>     the data part, then explained 401/503 from general knowledge **without searching the
+>     docs**, and told the user to search the help docs. Worth a prompt tweak later: search the
+>     docs for error meanings even when the question is hypothetical.
+> - No answer used two docs searches, so Part B's numbering gap didn't come up.
+> - Docs updated: `CLAUDE.md` (the help-docs rule, `ai/help/` and `help/` in the layout),
+>   `AI_PLAN.md` (Milestone 3 built), `ROADMAP.md` (help docs in §4; "maybe later" is now
+>   customer documents and the widget). Learning folder: `ai-milestones/milestone-3-help-docs/`.
+
 ---
 
 ## Done when
 
-- [ ] Help docs exist, are reviewed, and are readable on `/docs` without AI.
-- [ ] "How do I…" questions are answered from the docs, with sources that link to them.
-- [ ] Questions the docs don't cover get an honest "not in the docs", not a guess.
-- [ ] hit@4 ≥ 90% on the golden set with the real embedding model.
-- [ ] Plan numbers in the docs are checked against `PlanLimits` by a test.
-- [ ] Changing one section re-embeds only that section.
-- [ ] `./mvnw test` and `npm test` green.
+- [x] Help docs exist and are readable on `/docs` without AI (signed out too). Your review of
+      all 16 articles isn't recorded here: tick when done.
+- [x] "How do I…" questions are answered from the docs, with sources that link to them.
+- [x] Questions the docs don't cover get an honest "not in the docs", not a guess (SMS,
+      PagerDuty; the database question got a fair workaround from the docs).
+- [x] hit@4 ≥ 90% on the golden set with the real embedding model (97%).
+- [x] Plan numbers in the docs are checked against `PlanLimits` by a test.
+- [x] Changing one section re-embeds only that section.
+- [x] `./mvnw test` and `npm test` green (one flaky email test, unrelated, passes on rerun).
 
 ## Risks to watch
 
