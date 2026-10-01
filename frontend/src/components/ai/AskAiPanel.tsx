@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import {
   ArrowLeft,
   ArrowUp,
+  BookOpen,
   Check,
   Globe,
   HeartPulse,
@@ -35,11 +36,13 @@ import {
   type AiConversation,
   type AiMessage,
   type AiQuota,
+  type HelpSource,
   type MessageStatus,
 } from '../../api/ai'
 import { ApiError } from '../../api/errors'
 import { listMonitors } from '../../api/monitors'
 import type { MonitorWithStats } from '../../types/monitor'
+import { mergeSources, splitCitations } from '../../lib/citations'
 import type { AskAiPageContext } from '../../lib/events'
 import { cn, formatDateTime } from '../../lib/format'
 import { Button } from '../ui/Button'
@@ -64,6 +67,8 @@ interface ChatItem {
   retry?: string
   /** What the model looked up for this answer, e.g. "Checked uptime for Health, 2026-09-01". */
   lookups?: string[]
+  /** Help-doc sections the answer can cite; "[1]" in the text is the first. */
+  sources?: HelpSource[]
 }
 
 type View = 'loading' | 'setup' | 'review' | 'chat' | 'history'
@@ -80,6 +85,7 @@ function toItem(m: AiMessage): ChatItem {
     status: m.status,
     rating: m.rating,
     lookups: m.lookups ?? [],
+    sources: m.sources ?? [],
   }
 }
 
@@ -102,6 +108,77 @@ function Lookups({ items }: { items?: string[] }) {
   )
 }
 
+/** Only links into the docs: a source is never a link the model could have made up. */
+const isDocsUrl = (url: string) => url.startsWith('/docs/')
+
+/** The numbered docs sections under an answer, linking to the section on the docs page. */
+function Sources({ items }: { items?: HelpSource[] }) {
+  if (!items?.length) return null
+  return (
+    <div className="mt-2.5 border-t border-zinc-100 pt-2 dark:border-zinc-800">
+      <p className="flex items-center gap-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+        <BookOpen className="size-3.5" aria-hidden />
+        Sources
+      </p>
+      <ol className="mt-1 space-y-0.5 text-xs" aria-label="Sources">
+        {items.map((s, i) => (
+          <li key={`${s.url} ${s.title}`} className="flex gap-1.5">
+            <span className="shrink-0 text-zinc-400 tabular-nums">[{i + 1}]</span>
+            {isDocsUrl(s.url) ? (
+              <Link to={s.url} className="font-medium text-emerald-700 hover:underline dark:text-emerald-400">
+                {s.title}
+              </Link>
+            ) : (
+              <span>{s.title}</span>
+            )}
+          </li>
+        ))}
+      </ol>
+    </div>
+  )
+}
+
+/**
+ * Text with its citations linked: "[1, 3]" becomes two small links to sources 1 and 3. A number
+ * with no matching source stays as written, so a slip by the model never links somewhere wrong.
+ */
+function CitedText({ text, sources }: { text: string; sources: HelpSource[] }) {
+  return (
+    <>
+      {splitCitations(text).map((part, i) => {
+        if (typeof part === 'string') return <Fragment key={i}>{part}</Fragment>
+        const source = (n: number) => {
+          const s = sources[n - 1]
+          return s && isDocsUrl(s.url) ? s : undefined
+        }
+        if (!part.numbers.some(source)) return <Fragment key={i}>{part.raw}</Fragment>
+        return (
+          <sup key={i} className="ml-0.5 inline-flex gap-0.5 align-super text-[0.7em] leading-none">
+            {part.numbers.map((n, j) => {
+              const s = source(n)
+              return s ? (
+                <Link
+                  key={j}
+                  to={s.url}
+                  aria-label={`Source ${n}: ${s.title}`}
+                  title={s.title}
+                  className="rounded bg-emerald-50 px-1 py-0.5 font-semibold text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:hover:bg-emerald-500/20"
+                >
+                  {n}
+                </Link>
+              ) : (
+                <span key={j} className="px-0.5 text-zinc-500">
+                  {n}
+                </span>
+              )
+            })}
+          </sup>
+        )
+      })}
+    </>
+  )
+}
+
 const BULLET = /^\s*[-*•]\s+/
 
 /**
@@ -110,10 +187,14 @@ const BULLET = /^\s*[-*•]\s+/
  * each run of bullet lines becomes a list, each run of other lines a paragraph that keeps its
  * line breaks. Never uses innerHTML.
  */
-function RichText({ text }: { text: string }) {
+function RichText({ text, sources = [] }: { text: string; sources?: HelpSource[] }) {
   const inline = (s: string): ReactNode[] =>
     s.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
-      part.startsWith('**') && part.endsWith('**') ? <strong key={i}>{part.slice(2, -2)}</strong> : <Fragment key={i}>{part}</Fragment>,
+      part.startsWith('**') && part.endsWith('**') ? (
+        <strong key={i}>{part.slice(2, -2)}</strong>
+      ) : (
+        <CitedText key={i} text={part} sources={sources} />
+      ),
     )
   const groups: { bullet: boolean; lines: string[] }[] = []
   for (const block of text.split(/\n\s*\n/)) {
@@ -283,7 +364,8 @@ export function AskAiPanel({ open, onClose, page = null }: Props) {
       const result = await streamMessage(id, q, {
         signal: controller.signal,
         onDelta: (text) => update(answerKey, (a) => ({ ...a, text: a.text + text })),
-        onTool: (label) => update(answerKey, (a) => ({ ...a, lookups: [...(a.lookups ?? []), label] })),
+        onTool: (label, sources) =>
+          update(answerKey, (a) => ({ ...a, lookups: [...(a.lookups ?? []), label], sources: mergeSources(a.sources ?? [], sources) })),
       })
       if (result.kind === 'done') {
         update(answerKey, (a) => ({ ...a, id: result.done.answerId, status: 'COMPLETE', streaming: false }))
@@ -796,11 +878,12 @@ export function AskAiPanel({ open, onClose, page = null }: Props) {
                     {failed ? (
                       <p className="text-zinc-500 italic dark:text-zinc-400">No answer: Ask AI couldn't reply to this one.</p>
                     ) : m.text ? (
-                      <RichText text={m.text} />
+                      <RichText text={m.text} sources={m.sources} />
                     ) : (
                       <p className="text-zinc-500 italic dark:text-zinc-400">Stopped before answering.</p>
                     )}
                     {stopped && m.text && <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">Stopped</p>}
+                    {!failed && <Sources items={m.sources} />}
                     {!m.streaming && !failed && m.id !== undefined && m.text && (
                       <div className="mt-2 flex gap-1">
                         {([1, -1] as const).map((r) => {

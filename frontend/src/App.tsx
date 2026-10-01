@@ -57,15 +57,15 @@ export default function App() {
             {/* Public status pages: no session, no app chrome. */}
             <Route path="status/:slug" element={<PublicStatusPage />} />
 
-            {/* The docs: public, with the app around them when signed in. */}
+            {/* One layout for the docs and the app, so moving between them keeps it mounted: the
+                Ask AI panel stays open on its chat when a source link opens the docs. Signed out,
+                the docs get a public frame and every other page sends you to /login. */}
             <Route element={<SignedInOrPublic app={<AppLayout />} visitor={<PublicDocsLayout />} />}>
               <Route path="docs" element={<DocsPage />} />
               <Route path="docs/:slug" element={<DocArticlePage />} />
-            </Route>
 
-            {/* Everything else needs a session. */}
-            <Route element={<RequireAuth />}>
-              <Route element={<AppLayout />}>
+              {/* Everything else needs a session. */}
+              <Route element={<RequireAuth />}>
                 <Route path="monitors" element={<MonitorsPage />} />
                 <Route path="monitors/new" element={<MonitorFormPage key="new" />} />
                 <Route path="monitors/:id/edit" element={<MonitorFormPage key="edit" />} />

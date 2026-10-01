@@ -1,9 +1,9 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ComponentProps } from 'react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { StreamResult } from '../../api/ai'
+import type { HelpSource, StreamResult } from '../../api/ai'
 import { ApiError } from '../../api/errors'
 import { httpMonitor, withStats } from '../../test/fixtures'
 import { AskAiPanel } from './AskAiPanel'
@@ -41,25 +41,44 @@ const DONE: StreamResult = {
   done: { questionId: 1, answerId: 2, status: 'COMPLETE', quota: { used: 1, limit: 5 } },
 }
 
+function Where() {
+  const { pathname, hash } = useLocation()
+  return <p data-testid="where">{pathname + hash}</p>
+}
+
 function renderPanel(page: ComponentProps<typeof AskAiPanel>['page'] = null) {
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={['/monitors']}>
       <AskAiPanel open onClose={() => {}} page={page} />
+      <Routes>
+        <Route path="*" element={<Where />} />
+      </Routes>
     </MemoryRouter>,
   )
   return userEvent.setup()
 }
 
+/** A lookup as the stream reports it: a label, and the docs sections a help search found. */
+type Lookup = string | { label: string; sources: HelpSource[] }
+
 /** Plays back an answer: each lookup through onTool, each piece through onDelta, then the result. */
-function answers(pieces: string[], result: StreamResult = DONE, lookups: string[] = []) {
+function answers(pieces: string[], result: StreamResult = DONE, lookups: Lookup[] = []) {
   ai.streamMessage.mockImplementation(
-    async (_id: number, _q: string, { onDelta, onTool }: { onDelta: (t: string) => void; onTool?: (l: string) => void }) => {
-      lookups.forEach((l) => onTool?.(l))
+    async (
+      _id: number,
+      _q: string,
+      { onDelta, onTool }: { onDelta: (t: string) => void; onTool?: (l: string, s: HelpSource[]) => void },
+    ) => {
+      lookups.forEach((l) => (typeof l === 'string' ? onTool?.(l, []) : onTool?.(l.label, l.sources)))
       pieces.forEach(onDelta)
       return result
     },
   )
 }
+
+const SLACK_SETUP = { title: 'Slack alerts › Setting it up', url: '/docs/slack-alerts#setting-it-up' }
+const SLACK_PLANS = { title: 'Plans and limits › What each plan includes', url: '/docs/plans-and-limits#what-each-plan-includes' }
+const SLACK_TEST = { title: 'Slack alerts › Testing the channel', url: '/docs/slack-alerts#testing-the-channel' }
 
 beforeEach(() => {
   ai.getAiAccess.mockResolvedValue(ON)
@@ -117,6 +136,59 @@ describe('Ask AI panel', () => {
     expect(await screen.findByText('Health was up 99.82%.')).toBeInTheDocument()
     const lookups = screen.getByRole('list', { name: 'What Ask AI looked up' })
     expect(within(lookups).getByText('Checked uptime for Health, 2026-09-01 to 2026-09-03')).toBeInTheDocument()
+  })
+
+  it('lists the docs sections under a docs answer, numbered, linking to each section', async () => {
+    answers(['Create an incoming webhook [1], on Pro or Business [2].'], DONE, [
+      { label: 'Searched the help docs for "slack"', sources: [SLACK_SETUP, SLACK_PLANS] },
+      // A second search finding a section again doesn't number it twice.
+      { label: 'Searched the help docs for "slack test"', sources: [SLACK_SETUP, SLACK_TEST] },
+    ])
+    const user = renderPanel()
+
+    await user.type(await screen.findByLabelText('Your question'), 'How do I set up Slack?{Enter}')
+
+    const sources = await screen.findByRole('list', { name: 'Sources' })
+    const items = within(sources).getAllByRole('listitem')
+    expect(items.map((li) => li.textContent)).toEqual([
+      '[1]Slack alerts › Setting it up',
+      '[2]Plans and limits › What each plan includes',
+      '[3]Slack alerts › Testing the channel',
+    ])
+    await user.click(within(sources).getByRole('link', { name: 'Slack alerts › Setting it up' }))
+
+    expect(screen.getByTestId('where')).toHaveTextContent('/docs/slack-alerts#setting-it-up')
+    expect(screen.getByLabelText('Your question')).toBeInTheDocument() // the panel stays open
+  })
+
+  it('links the citations in the text; a number with no source stays text', async () => {
+    answers(['Add the webhook [1, 3]. Free has no Slack [2][3]. See also [9] and [1](https://evil.example).'], DONE, [
+      { label: 'Searched the help docs for "slack"', sources: [SLACK_SETUP, SLACK_PLANS, SLACK_TEST] },
+    ])
+    const user = renderPanel()
+
+    await user.type(await screen.findByLabelText('Your question'), 'Slack?{Enter}')
+
+    await screen.findByRole('list', { name: 'Sources' })
+    const cited = screen.getAllByRole('link', { name: /^Source \d/ })
+    expect(cited.map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
+      ['1', '/docs/slack-alerts#setting-it-up'],
+      ['3', '/docs/slack-alerts#testing-the-channel'],
+      ['2', '/docs/plans-and-limits#what-each-plan-includes'],
+      ['3', '/docs/slack-alerts#testing-the-channel'],
+    ])
+    expect(screen.getByText(/See also \[9\] and \[1\]\(https:\/\/evil\.example\)\./)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /evil/ })).not.toBeInTheDocument()
+  })
+
+  it('leaves citations as text in an answer that has no sources', async () => {
+    answers(['Health had 3 incidents [1].'])
+    const user = renderPanel()
+
+    await user.type(await screen.findByLabelText('Your question'), 'Incidents?{Enter}')
+
+    expect(await screen.findByText('Health had 3 incidents [1].')).toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: 'Sources' })).not.toBeInTheDocument()
   })
 
   it('starts a chat about an incident from its page', async () => {
@@ -233,6 +305,7 @@ describe('Ask AI panel', () => {
         createdAt: CHAT.createdAt,
         rating: 1,
         lookups: ['Checked recent failed checks for Shop API'],
+        sources: [],
       },
     ])
     const user = renderPanel()
@@ -246,6 +319,31 @@ describe('Ask AI panel', () => {
     expect(screen.getByRole('button', { name: 'Good answer' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText('Checked recent failed checks for Shop API')).toBeInTheDocument()
     expect(screen.getByText('About Shop API')).toBeInTheDocument()
+  })
+
+  it('shows the saved sources when a docs answer is reopened', async () => {
+    ai.listConversations.mockResolvedValue([CHAT])
+    ai.getMessages.mockResolvedValue([
+      { id: 1, role: 'USER', content: 'Slack?', status: 'COMPLETE', createdAt: CHAT.createdAt, rating: null, lookups: [], sources: [] },
+      {
+        id: 2,
+        role: 'ASSISTANT',
+        content: 'Create an incoming webhook [1].',
+        status: 'COMPLETE',
+        createdAt: CHAT.createdAt,
+        rating: null,
+        lookups: ['Searched the help docs for "slack"'],
+        sources: [SLACK_SETUP],
+      },
+    ])
+    const user = renderPanel()
+
+    await user.click(await screen.findByRole('button', { name: 'Your chats' }))
+    await user.click(screen.getByRole('button', { name: /^Is Health down\?/ }))
+
+    const sources = await screen.findByRole('list', { name: 'Sources' })
+    expect(within(sources).getByRole('link', { name: 'Slack alerts › Setting it up' })).toHaveAttribute('href', '/docs/slack-alerts#setting-it-up')
+    expect(screen.getByRole('link', { name: 'Source 1: Slack alerts › Setting it up' })).toHaveAttribute('href', '/docs/slack-alerts#setting-it-up')
   })
 
   it('renames and deletes chats', async () => {

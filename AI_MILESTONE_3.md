@@ -407,6 +407,21 @@ Each step ends with something you can run or test.
 > - Browser: list, article, anchor scroll, code block, dark at phone width checked signed in;
 >   signed out checked by API (no token: 200/200/404, other APIs 401) and by the tests, since the
 >   pane can't open a second origin to hold a signed-out session.
+>
+> **Part B done (1 Oct).**
+> - `ai.ts`: `HelpSource`, `AiMessage.sources`, `onTool(label, sources)`. `lib/citations.ts`:
+>   `splitCitations` ("[1]", "[1, 3]", "[2][3]"; "[1](…)" is a link, not a citation) and
+>   `mergeSources` (each search's sections in order, repeats dropped, as ConversationService saves
+>   them). The panel shows numbered "Sources" links under an answer, and citations as small links;
+>   a number with no source, or a source outside `/docs/`, stays plain text.
+> - Fix found in the browser: `/docs` had its own `AppLayout`, so following a source remounted the
+>   layout and closed the panel, losing the chat. The docs and app routes now share one layout
+>   route (`SignedInOrPublic`, with `RequireAuth` inside it).
+> - Known gap: two docs searches in one answer each number from [1], so "[1]" is ambiguous there;
+>   the panel numbers the merged list. Fix on the backend (number on from the previous search) if
+>   it shows up in Step 7's hand-asked questions.
+> - Tests: 6 new (stream sources, numbered list + click keeps the panel open, citation links and
+>   `[9]`/Markdown link as text, no sources → plain, reopened chat). Checked with a real answer.
 
 ### Step 7: Try it for real, docs, learning folder (1 day)
 - Run the eval with real Gemini; ask ~10 questions by hand, including ones the docs don't

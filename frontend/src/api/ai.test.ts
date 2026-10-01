@@ -105,6 +105,24 @@ describe('streamMessage', () => {
     expect(seen).toEqual(['tool:Checked uptime for Health, 2026-09-01', 'delta:99.82%.'])
   })
 
+  it('passes the docs sections a help search found with its lookup', async () => {
+    fetchMock.mockResolvedValueOnce(
+      sse([
+        'event:tool\ndata:{"label":"Searched the help docs for \\"slack\\"","sources":[{"title":"Slack alerts › Setting it up","url":"/docs/slack-alerts#setting-it-up"}]}\n\n',
+        'event:tool\ndata:{"label":"Checked uptime for Health, 2026-09-01"}\n\n',
+        'event:done\ndata:{"questionId":1,"answerId":2,"status":"COMPLETE","quota":{"used":1,"limit":5}}\n\n',
+      ]),
+    )
+    const seen: unknown[] = []
+
+    await streamMessage(42, 'Slack?', { onDelta: () => {}, onTool: (label, sources) => seen.push({ label, sources }) })
+
+    expect(seen).toEqual([
+      { label: 'Searched the help docs for "slack"', sources: [{ title: 'Slack alerts › Setting it up', url: '/docs/slack-alerts#setting-it-up' }] },
+      { label: 'Checked uptime for Health, 2026-09-01', sources: [] },
+    ])
+  })
+
   it('starts a chat about a page by sending its id', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ id: 9 }), { status: 201 }))
 

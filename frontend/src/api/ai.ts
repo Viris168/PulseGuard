@@ -49,6 +49,12 @@ export interface AiConversation {
 
 export type MessageStatus = 'COMPLETE' | 'PARTIAL' | 'FAILED'
 
+/** A help-doc section an answer is based on, e.g. "Slack alerts › Setting it up" at /docs/slack-alerts#setting-it-up. */
+export interface HelpSource {
+  title: string
+  url: string
+}
+
 /** Mirrors MessageResponse. Answers are plain text: lines starting "- " are bullets, **text** is bold. */
 export interface AiMessage {
   id: number
@@ -60,6 +66,8 @@ export interface AiMessage {
   rating: 1 | -1 | null
   /** What the model looked up for an answer, e.g. "Checked uptime for Health, 2026-09-01". */
   lookups: string[]
+  /** The help-doc sections the answer can cite; [1] in the text is the first. Empty for data answers. */
+  sources: HelpSource[]
 }
 
 /** GET /api/ai/conversations — newest first. */
@@ -120,7 +128,8 @@ export type StreamResult =
 /**
  * POST /api/ai/conversations/{id}/messages, reading the Server-Sent Events answer with fetch
  * (EventSource can't send the Authorization header). Calls `onDelta` with each piece as it
- * arrives, and `onTool` with each lookup the model makes ("Checked uptime for Health, …"). Refusals (403, 404, 409, 429) happen before the stream starts and throw ApiError,
+ * arrives, and `onTool` with each lookup the model makes ("Checked uptime for Health, …") and,
+ * for a help-docs search, the sections it found. Refusals (403, 404, 409, 429) happen before the stream starts and throw ApiError,
  * like any other call. Aborting `signal` is Stop.
  */
 export async function streamMessage(
@@ -130,7 +139,7 @@ export async function streamMessage(
     onDelta,
     onTool,
     signal,
-  }: { onDelta: (text: string) => void; onTool?: (label: string) => void; signal?: AbortSignal },
+  }: { onDelta: (text: string) => void; onTool?: (label: string, sources: HelpSource[]) => void; signal?: AbortSignal },
 ): Promise<StreamResult> {
   let result: StreamResult | null = null
   try {
@@ -142,7 +151,10 @@ export async function streamMessage(
     if (!res.body) throw new Error('The answer stream could not be read.')
     const parser = createSseParser((event, data) => {
       if (event === 'delta') onDelta((JSON.parse(data) as { text: string }).text)
-      else if (event === 'tool') onTool?.((JSON.parse(data) as { label: string }).label)
+      else if (event === 'tool') {
+        const tool = JSON.parse(data) as { label: string; sources?: HelpSource[] }
+        onTool?.(tool.label, tool.sources ?? [])
+      }
       else if (event === 'done') result = { kind: 'done', done: JSON.parse(data) as StreamDone }
       else if (event === 'error') result = { kind: 'error', error: JSON.parse(data) as StreamError }
     })
