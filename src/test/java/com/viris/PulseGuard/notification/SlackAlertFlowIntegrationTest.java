@@ -1,5 +1,6 @@
 package com.viris.PulseGuard.notification;
 
+import com.viris.PulseGuard.TestDatabase;
 import com.viris.PulseGuard.auth.AuthService;
 import com.viris.PulseGuard.common.TestAccounts;
 import com.viris.PulseGuard.auth.User;
@@ -66,7 +67,7 @@ class SlackAlertFlowIntegrationTest {
     private static final String WEBHOOK = "https://hooks.slack.com/services/T000/B000/secretToken123";
 
     @ServiceConnection
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:16-alpine");
+    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(TestDatabase.IMAGE);
 
     static {
         POSTGRES.start();

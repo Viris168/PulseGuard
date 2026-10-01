@@ -1,5 +1,6 @@
 package com.viris.PulseGuard.stats;
 
+import com.viris.PulseGuard.TestDatabase;
 import com.viris.PulseGuard.ai.chat.AiConversation;
 import com.viris.PulseGuard.ai.chat.AiConversationRepository;
 import com.viris.PulseGuard.ai.chat.AiMessage;
@@ -56,7 +57,7 @@ import static org.assertj.core.api.Assertions.within;
 class HousekeepingIntegrationTest {
 
     @ServiceConnection
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:16-alpine");
+    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(TestDatabase.IMAGE);
 
     static {
         POSTGRES.start();

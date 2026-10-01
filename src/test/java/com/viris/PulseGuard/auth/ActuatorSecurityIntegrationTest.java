@@ -1,5 +1,6 @@
 package com.viris.PulseGuard.auth;
 
+import com.viris.PulseGuard.TestDatabase;
 import com.viris.PulseGuard.auth.security.InMemoryLoginRateLimiter;
 import com.viris.PulseGuard.auth.security.InMemoryTokenDenylist;
 import com.viris.PulseGuard.auth.security.LoginRateLimiter;
@@ -35,7 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class ActuatorSecurityIntegrationTest {
 
     @ServiceConnection
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:16-alpine");
+    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(TestDatabase.IMAGE);
 
     static {
         POSTGRES.start();

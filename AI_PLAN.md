@@ -209,17 +209,22 @@ returned as ISO UTC **plus** the user's local time label.
 **Done when:** answers match seeded data, "no data" instead of invention, cross-tenant and
 out-of-scope tests pass, every tool call logged.
 
-### Milestone 3: Help-docs answers (RAG) 📋 Planned
+### Milestone 3: Help-docs answers (RAG) ✅ Built
 
-Decided after Milestone 2: 📋 planned in detail in `AI_MILESTONE_3.md`. Ask AI answers "how do I…"
-questions from PulseGuard's own help docs (written as part of it, also shown on a `/docs` page),
-through a `search_help_docs` tool with hybrid pgvector + full-text search and cited sources.
-8–10 days. Customer-uploaded documents and the widget stay out of it.
+Built as planned in `AI_MILESTONE_3.md` (Steps 1–7) and tried on real Gemini: 16 help articles
+in `src/main/resources/help/`, kept true by `HelpDocsFactsTest`; Postgres moved to the pgvector
+image; each `##` section embedded with `gemini-embedding-2` (768 dimensions) into `help_chunks`
+(V24) on startup, only when new or changed; hybrid search (cosine + full-text, merged by rank)
+behind a `search_help_docs` tool; sources saved with the tool call (V25) and linked under the
+answer, with citations like "[1]" linking to the same sections. The docs are public on `/docs`.
+Golden set: 32 answerable and 6 uncovered questions, hit@4 ≥ 90%. Customer-uploaded documents
+and the widget stay out of it.
 
 ### Milestone 4+ (decide after Milestone 3)
 
 Keep the source plan's Phase 3/4 design, with these changes if you go ahead:
-- Switch Postgres images to pgvector; add embedding model + `document_chunks` with HNSW index.
+- pgvector and the embedding model are in place (Milestone 3); add `document_chunks` for
+  customer documents, reusing `HelpDocsIndexer`'s hash-and-re-embed approach.
 - Ingestion on the existing Quartz/Redis job infrastructure, not a new queue.
 - Widget: new public endpoints listed in CLAUDE.md; Turnstile on open; Redis limits per IP,
   session and widget; cheap model only; no tools that touch account data.
@@ -245,5 +250,5 @@ Keep the source plan's Phase 3/4 design, with these changes if you go ahead:
 | 1. Core chat | 1–1.5 weeks |
 | 2. PulseGuard assistant | 1–1.5 weeks |
 | **Ask AI shippable** | **~3–3.5 weeks** |
-| 3. Help-docs RAG | 8–10 days (planned) |
+| 3. Help-docs RAG | 8–10 days planned; built |
 | 4. Widget, customer documents | +2–4 weeks, if approved |

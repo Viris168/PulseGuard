@@ -1,5 +1,6 @@
 package com.viris.PulseGuard.notification;
 
+import com.viris.PulseGuard.TestDatabase;
 import com.viris.PulseGuard.auth.AuthService;
 import com.viris.PulseGuard.common.TestAccounts;
 import com.viris.PulseGuard.auth.User;
@@ -68,7 +69,7 @@ import static org.mockito.Mockito.verify;
 class NotificationFlowIntegrationTest {
 
     @ServiceConnection
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:16-alpine");
+    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(TestDatabase.IMAGE);
 
     static {
         POSTGRES.start();

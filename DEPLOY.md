@@ -147,6 +147,29 @@ cd ~/PulseGuard && git pull && cd deploy && docker compose up -d --build
 
 Flyway applies new database migrations when the app starts.
 
+### Once: switching the database to pgvector
+
+Since Ask AI's help-docs search (migration V24), the database runs on `pgvector/pgvector:pg16`
+instead of `postgres:16-alpine`. It's the same Postgres 16 and the same data volume, but a
+different C library (glibc, not musl), and the two sort text differently. Indexes built on the old
+image are then **out of order** (seen on a real copy: the Stripe event and subscription indexes),
+which can make lookups miss rows, so they must be rebuilt once. Do this for the first update that
+includes V24:
+
+```bash
+cd ~/PulseGuard/deploy
+./backup.sh                                    # a fresh dump first, in ~/pulseguard-backups
+docker compose stop app                        # nothing writes while the database is swapped
+cd ~/PulseGuard && git pull && cd deploy
+docker compose up -d postgres                  # recreated on the pgvector image, same volume
+docker compose exec postgres psql -U pulseguard -d pulseguard -c "REINDEX DATABASE pulseguard"
+docker compose up -d --build                   # the app starts and applies V24
+```
+
+`REINDEX` takes seconds at this size. "invalid collation version change" if you try `ALTER
+DATABASE … REFRESH COLLATION VERSION` is expected: the Alpine database never recorded one. If
+anything goes wrong, restore the dump from `~/pulseguard-backups`.
+
 ### Stripe
 
 Test mode is free. In the Stripe dashboard, add a webhook endpoint for
@@ -217,6 +240,8 @@ nothing is sent to any AI provider and the dashboard shows its built-in incident
 | `PULSEGUARD_AI_TIMEOUT` | Default `20s`, the longest a request waits for the model (for chat: for its first words) |
 | `PULSEGUARD_AI_STREAM_TIMEOUT` | Default `90s`, the longest one chat answer may take from start to finish |
 | `PULSEGUARD_AI_FAIR_USE_DAILY_QUESTIONS` | Default `500`, the Ask AI cap per day on Business. Free (5) and Pro (100) are fixed in `PlanLimits` |
+| `PULSEGUARD_AI_EMBEDDING_PROVIDER` | `none` (default) or `google-genai`: embeds the help docs for Ask AI's docs search. Needs `GOOGLE_AI_API_KEY`, even when the chat uses Anthropic |
+| `PULSEGUARD_AI_EMBEDDING_MODEL` | Default `gemini-embedding-2`. Changing it re-embeds every help section on the next start |
 
 Ask AI chat answers stream word by word (Server-Sent Events). `deploy/Caddyfile` leaves that one
 path out of compression so pieces aren't held back; behind another proxy, turn off response
@@ -225,6 +250,9 @@ After deploying, check an answer appears word by word rather than all at once.
 
 Failed AI calls are logged as `AI … failed` or `AI … timed out`, with the error class but never
 the prompt. Each answered call logs its token counts.
+
+With embeddings on, each start logs `Help docs indexed: 85 chunks, N embedded, …`: only sections
+that changed since the last start are embedded, so a normal restart embeds none.
 
 ### Tuning
 

@@ -1,5 +1,6 @@
 package com.viris.PulseGuard.auth.reset;
 
+import com.viris.PulseGuard.TestDatabase;
 import com.viris.PulseGuard.auth.User;
 import com.viris.PulseGuard.common.TestAccounts;
 import com.viris.PulseGuard.auth.UserRepository;
@@ -57,7 +58,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class PasswordResetIntegrationTest {
 
     @ServiceConnection
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:16-alpine");
+    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(TestDatabase.IMAGE);
 
     static {
         POSTGRES.start();

@@ -101,6 +101,9 @@ learning notes in `AI_PLAN.md` and `ai-milestones/`):
 - **Lookups (tools):** uptime, response times, incidents, incident details and failed checks for
   any range the plan keeps; each lookup shows as "Checked …" under the answer.
 - **"Ask AI" buttons** on monitor and incident pages.
+- **Help docs:** 16 articles on a public `/docs` page; Ask AI answers "how do I…" questions from
+  them, with numbered sources linking to the right section, and says when the docs don't cover
+  something.
 
 Rules that held from the first sketch:
 - API key lives **only on the backend**, never in React.
@@ -115,8 +118,8 @@ Provider: Spring AI `ChatModel`, switched by `PULSEGUARD_AI_PROVIDER` (Google Ge
 Still open:
 - Check streaming behind the production proxy (Caddy) after the next deploy.
 - Usage and cost dashboard for the admin; per-plan rollout switch.
-- Maybe later (`AI_PLAN.md` Milestone 3+): answers from PulseGuard's help docs (RAG), and a
-  support widget on public pages.
+- Maybe later (`AI_PLAN.md` Milestone 4+): answers from customers' own documents (runbooks), and
+  a support widget on public pages.
 
 ---
 

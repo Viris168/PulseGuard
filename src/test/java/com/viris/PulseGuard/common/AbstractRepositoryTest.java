@@ -1,5 +1,6 @@
 package com.viris.PulseGuard.common;
 
+import com.viris.PulseGuard.TestDatabase;
 import com.viris.PulseGuard.enumeration.ChannelType;
 import com.viris.PulseGuard.enumeration.IncidentStatus;
 import com.viris.PulseGuard.incident.Incident;
@@ -24,7 +25,7 @@ public abstract class AbstractRepositoryTest {
     // One container shared by every test class (Spring caches the context, so it must outlive a class).
     // Started once here; Ryuk removes it when the JVM exits.
     @ServiceConnection
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:16-alpine");
+    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(TestDatabase.IMAGE);
 
     static {
         POSTGRES.start();

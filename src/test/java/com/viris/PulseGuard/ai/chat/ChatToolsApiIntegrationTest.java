@@ -1,5 +1,6 @@
 package com.viris.PulseGuard.ai.chat;
 
+import com.viris.PulseGuard.TestDatabase;
 import com.viris.PulseGuard.ai.InMemoryAiQuestionQuota;
 import com.viris.PulseGuard.auth.User;
 import com.viris.PulseGuard.auth.UserRepository;
@@ -62,7 +63,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class ChatToolsApiIntegrationTest {
 
     @ServiceConnection
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:16-alpine");
+    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(TestDatabase.IMAGE);
 
     static {
         POSTGRES.start();
@@ -239,6 +240,17 @@ class ChatToolsApiIntegrationTest {
         String rules = PROMPTS.getFirst().getInstructions().getFirst().getText();
         assertThat(rules).contains("use the tools").contains("<tool_result>").doesNotContain("Older history isn't available");
         assertThat(PROMPTS.getFirst().getInstructions().getLast().getText()).contains("today is " + LocalDate.now(ZONE));
+    }
+
+    @Test
+    void withoutAnEmbeddingModelTheHelpDocsToolIsNotOffered() throws Exception {
+        ASKS_FOR.set(new String[]{"get_uptime", uptimeArgs("Health")});
+
+        send(newChat(), "What was Health's uptime yesterday?");
+
+        List<String> offered = ((org.springframework.ai.model.tool.ToolCallingChatOptions) PROMPTS.getFirst().getOptions())
+                .getToolCallbacks().stream().map(c -> c.getToolDefinition().name()).toList();
+        assertThat(offered).contains("get_uptime").doesNotContain("search_help_docs");
     }
 
     // ─── helpers ─────────────────────────────────────────────────────────────
