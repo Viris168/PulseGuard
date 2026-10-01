@@ -340,7 +340,8 @@ Each step ends with something you can run or test.
 
 > **Step 6 plan (written 1 Oct, to build 2 Oct).** Three parts, in this order.
 >
-> **Decisions to confirm first**
+> **Decisions to confirm first** (both confirmed 1 Oct: docs are public; add `react-markdown` +
+> `remark-gfm`)
 > 1. **Public docs?** Recommendation: **yes**, like `/status/:slug`: readable signed out (good for
 >    people deciding whether to sign up, and for search engines), with the app's sidebar when
 >    signed in. Needs `GET /api/help` and `GET /api/help/{slug}` permitted in `SecurityConfig`
