@@ -4,6 +4,9 @@ spring:
   # Loads .env from the working directory when present; ignored when it is not.
   config:
     import: optional:file:.env[.properties]
+  autoconfigure:
+    # Fails startup without a Google key even when docs search is off; HelpDocsConfig replaces it.
+    exclude: org.springframework.ai.model.google.genai.autoconfigure.embedding.GoogleGenAiEmbeddingConnectionAutoConfiguration
   datasource:
     url: ${SPRING_DATASOURCE_URL}
     username: ${SPRING_DATASOURCE_USERNAME}
