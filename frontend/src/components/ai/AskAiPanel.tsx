@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import {
@@ -42,10 +42,11 @@ import {
 import { ApiError } from '../../api/errors'
 import { listMonitors } from '../../api/monitors'
 import type { MonitorWithStats } from '../../types/monitor'
-import { mergeSources, splitCitations } from '../../lib/citations'
+import { mergeSources } from '../../lib/citations'
 import type { AskAiPageContext } from '../../lib/events'
 import { cn, formatDateTime } from '../../lib/format'
 import { Button } from '../ui/Button'
+import { Markdown } from '../ui/Markdown'
 import { Modal } from '../ui/Modal'
 import { Spinner } from '../ui/Spinner'
 import { PulseMascot } from './PulseMascot'
@@ -139,93 +140,53 @@ function Sources({ items }: { items?: HelpSource[] }) {
 }
 
 /**
- * Text with its citations linked: "[1, 3]" becomes two small links to sources 1 and 3. A number
- * with no matching source stays as written, so a slip by the model never links somewhere wrong.
+ * A citation in an answer, "[1, 3]", as small links to sources 1 and 3. A number with no matching
+ * source stays as written, so a slip by the model never links somewhere wrong.
  */
-function CitedText({ text, sources }: { text: string; sources: HelpSource[] }) {
+function Citation({ numbers, raw, sources }: { numbers: number[]; raw: string; sources: HelpSource[] }) {
+  const source = (n: number) => {
+    const s = sources[n - 1]
+    return s && isDocsUrl(s.url) ? s : undefined
+  }
+  if (!numbers.some(source)) return <>{raw}</>
   return (
-    <>
-      {splitCitations(text).map((part, i) => {
-        if (typeof part === 'string') return <Fragment key={i}>{part}</Fragment>
-        const source = (n: number) => {
-          const s = sources[n - 1]
-          return s && isDocsUrl(s.url) ? s : undefined
-        }
-        if (!part.numbers.some(source)) return <Fragment key={i}>{part.raw}</Fragment>
-        return (
-          <sup key={i} className="ml-0.5 inline-flex gap-0.5 align-super text-[0.7em] leading-none">
-            {part.numbers.map((n, j) => {
-              const s = source(n)
-              return s ? (
-                <Link
-                  key={j}
-                  to={s.url}
-                  aria-label={`Source ${n}: ${s.title}`}
-                  title={s.title}
-                  className="rounded bg-emerald-50 px-1 py-0.5 font-semibold text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:hover:bg-emerald-500/20"
-                >
-                  {n}
-                </Link>
-              ) : (
-                <span key={j} className="px-0.5 text-zinc-500">
-                  {n}
-                </span>
-              )
-            })}
-          </sup>
+    <sup className="ml-0.5 inline-flex gap-0.5 text-[0.75em] leading-none">
+      {numbers.map((n, j) => {
+        const s = source(n)
+        return s ? (
+          <Link
+            key={j}
+            to={s.url}
+            aria-label={`Source ${n}: ${s.title}`}
+            title={s.title}
+            className="rounded bg-emerald-50 px-1 py-0.5 font-semibold text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:hover:bg-emerald-500/20"
+          >
+            {n}
+          </Link>
+        ) : (
+          <span key={j} className="px-0.5 text-zinc-500">
+            {n}
+          </span>
         )
       })}
-    </>
+    </sup>
   )
 }
 
-const BULLET = /^\s*[-*•]\s+/
-
 /**
- * Renders the answer format: blank-line paragraphs, bullet lines ("- ", "* " or "• "), **bold**.
- * A paragraph can mix text and bullets ("Two incidents:" then the list), so lines are grouped:
- * each run of bullet lines becomes a list, each run of other lines a paragraph that keeps its
- * line breaks. Never uses innerHTML.
+ * An answer: Markdown, so lists, `code`, tables and code blocks look right. Links the model wrote
+ * are shown as text, never followed; the only links are the citations of real sources.
  */
-function RichText({ text, sources = [] }: { text: string; sources?: HelpSource[] }) {
-  const inline = (s: string): ReactNode[] =>
-    s.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
-      part.startsWith('**') && part.endsWith('**') ? (
-        <strong key={i}>{part.slice(2, -2)}</strong>
-      ) : (
-        <CitedText key={i} text={part} sources={sources} />
-      ),
-    )
-  const groups: { bullet: boolean; lines: string[] }[] = []
-  for (const block of text.split(/\n\s*\n/)) {
-    let previous: { bullet: boolean; lines: string[] } | null = null
-    for (const line of block.split('\n')) {
-      if (!line.trim()) continue
-      const bullet = BULLET.test(line)
-      if (previous && previous.bullet === bullet) {
-        previous.lines.push(line)
-      } else {
-        previous = { bullet, lines: [line] }
-        groups.push(previous)
-      }
-    }
-  }
+function AnswerText({ text, sources = [] }: { text: string; sources?: HelpSource[] }) {
   return (
-    <div className="space-y-2">
-      {groups.map((g, i) =>
-        g.bullet ? (
-          <ul key={i} className="list-disc space-y-0.5 pl-5">
-            {g.lines.map((l, j) => (
-              <li key={j}>{inline(l.replace(BULLET, ''))}</li>
-            ))}
-          </ul>
-        ) : (
-          <p key={i} className="whitespace-pre-line">
-            {inline(g.lines.join('\n'))}
-          </p>
-        ),
-      )}
-    </div>
+    <Markdown
+      compact
+      links={false}
+      className="text-zinc-800 dark:text-zinc-100"
+      renderCitation={sources.length ? (numbers, raw) => <Citation numbers={numbers} raw={raw} sources={sources} /> : undefined}
+    >
+      {text}
+    </Markdown>
   )
 }
 
@@ -878,7 +839,7 @@ export function AskAiPanel({ open, onClose, page = null }: Props) {
                     {failed ? (
                       <p className="text-zinc-500 italic dark:text-zinc-400">No answer: Ask AI couldn't reply to this one.</p>
                     ) : m.text ? (
-                      <RichText text={m.text} sources={m.sources} />
+                      <AnswerText text={m.text} sources={m.sources} />
                     ) : (
                       <p className="text-zinc-500 italic dark:text-zinc-400">Stopped before answering.</p>
                     )}

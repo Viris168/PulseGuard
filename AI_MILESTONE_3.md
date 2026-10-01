@@ -422,6 +422,19 @@ Each step ends with something you can run or test.
 >   it shows up in Step 7's hand-asked questions.
 > - Tests: 6 new (stream sources, numbered list + click keeps the panel open, citation links and
 >   `[9]`/Markdown link as text, no sources → plain, reopened chat). Checked with a real answer.
+>
+> **Part C done (1 Oct).**
+> - Answers render through `Markdown` (`compact`, `links={false}`); `RichText` is gone. Links the
+>   model writes show as their text and images as their alt text, so nothing is followed or
+>   loaded. In a bubble a single line break is kept (`whitespace-pre-line`), as `RichText` did.
+> - Citations are a small remark plugin in `Markdown` (`renderCitation`): text nodes become
+>   `<cite>` elements, so "[1]" links inside lists, bold and tables, but not inside code or a
+>   link. The model can't write `<cite>` itself: raw HTML is never rendered.
+> - The prompt's "plain text" rule is unchanged; this only makes the odd list or backtick tidy.
+> - Tests: 3 new (list + code + table + code block + kept line break; model links and images not
+>   followed or loaded; citations in a list and bold, not in code). The Part B test for "[1](…)"
+>   now expects the link's text. Checked on the real Slack answer: numbered list, the webhook URL
+>   as code, citations linked; light, dark, and phone width.
 
 ### Step 7: Try it for real, docs, learning folder (1 day)
 - Run the eval with real Gemini; ask ~10 questions by hand, including ones the docs don't

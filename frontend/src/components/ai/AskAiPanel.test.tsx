@@ -177,8 +177,52 @@ describe('Ask AI panel', () => {
       ['2', '/docs/plans-and-limits#what-each-plan-includes'],
       ['3', '/docs/slack-alerts#testing-the-channel'],
     ])
-    expect(screen.getByText(/See also \[9\] and \[1\]\(https:\/\/evil\.example\)\./)).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /evil/ })).not.toBeInTheDocument()
+    // [9] has no source; "[1](…)" is a link the model wrote, shown as its text.
+    expect(screen.getByText(/See also \[9\] and/)).toHaveTextContent('See also [9] and 1.')
+    expect(document.querySelector('a[href*="evil"]')).toBeNull()
+  })
+
+  it('renders lists, code, tables and code blocks in an answer', async () => {
+    answers([
+      'Two steps:\n\n1. Create a webhook\n2. Paste it into `Settings`\n\n| Plan | Slack |\n| --- | --- |\n| Free | No |\n\n```\ncurl -fsS https://example.com/api/ping/abc\n```\n\nFirst line\nsecond line',
+    ])
+    const user = renderPanel()
+
+    await user.type(await screen.findByLabelText('Your question'), 'How?{Enter}')
+
+    const steps = await screen.findAllByRole('listitem')
+    expect(steps[0].closest('ol')).not.toBeNull()
+    expect(steps.map((li) => li.textContent)).toEqual(['Create a webhook', 'Paste it into Settings'])
+    expect(screen.getByText('Settings', { selector: 'code' })).toBeInTheDocument()
+    expect(within(screen.getByRole('table')).getByRole('cell', { name: 'Free' })).toBeInTheDocument()
+    expect(document.querySelector('pre > code')).toHaveTextContent('curl -fsS https://example.com/api/ping/abc')
+    expect(screen.getByText(/First line/).textContent).toBe('First line\nsecond line')
+  })
+
+  it('never follows a link or loads an image the model wrote', async () => {
+    answers(['Read [the guide](https://evil.example/guide) or [this](/billing). ![tracker](https://evil.example/pixel.png)'])
+    const user = renderPanel()
+
+    await user.type(await screen.findByLabelText('Your question'), 'Guide?{Enter}')
+
+    expect(await screen.findByText('the guide')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'the guide' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'this' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(screen.getByText('tracker')).toBeInTheDocument()
+  })
+
+  it('links citations inside a list and bold text, but not inside code', async () => {
+    answers(['- **Set it up [1]**\n- Then `[1]` in code'], DONE, [{ label: 'Searched the help docs for "slack"', sources: [SLACK_SETUP] }])
+    const user = renderPanel()
+
+    await user.type(await screen.findByLabelText('Your question'), 'Slack?{Enter}')
+
+    await screen.findByRole('list', { name: 'Sources' })
+    const cited = screen.getAllByRole('link', { name: /^Source 1/ })
+    expect(cited).toHaveLength(1)
+    expect(cited[0].closest('strong')).not.toBeNull()
+    expect(screen.getByText('[1]', { selector: 'code' })).toBeInTheDocument()
   })
 
   it('leaves citations as text in an answer that has no sources', async () => {
