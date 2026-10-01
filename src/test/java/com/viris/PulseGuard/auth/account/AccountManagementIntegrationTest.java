@@ -21,6 +21,7 @@ import com.viris.PulseGuard.notification.repository.NotificationChannelRepositor
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -41,6 +42,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -133,15 +135,20 @@ class AccountManagementIntegrationTest {
         verifyToken = tokenFrom(mailTo("alice@example.com", "Verify your email for PulseGuard"));
     }
 
-    /** Waits for the async email with this subject to this address; returns its text. */
+    /**
+     * Waits for the async email with this subject to this address; returns its text. Waits for that
+     * exact email, not just any email: several are sent in the background and arrive in any order.
+     */
     private String mailTo(String to, String subject) {
+        Predicate<SimpleMailMessage> wanted = m -> subject.equals(m.getSubject()) && Arrays.asList(m.getTo()).contains(to);
+        try {
+            verify(mailSender, timeout(5000).atLeast(1)).send(ArgumentMatchers.<SimpleMailMessage>argThat(wanted::test));
+        } catch (AssertionError e) {
+            throw new AssertionError("No '" + subject + "' email to " + to, e);
+        }
         ArgumentCaptor<SimpleMailMessage> mail = ArgumentCaptor.forClass(SimpleMailMessage.class);
-        verify(mailSender, timeout(5000).atLeast(1)).send(mail.capture());
-        return mail.getAllValues().stream()
-                .filter(m -> subject.equals(m.getSubject()) && Arrays.asList(m.getTo()).contains(to))
-                .reduce((a, b) -> b)
-                .map(SimpleMailMessage::getText)
-                .orElseThrow(() -> new AssertionError("No '" + subject + "' email to " + to));
+        verify(mailSender, atLeast(1)).send(mail.capture());
+        return mail.getAllValues().stream().filter(wanted).reduce((a, b) -> b).orElseThrow().getText();
     }
 
     private static String tokenFrom(String text) {
