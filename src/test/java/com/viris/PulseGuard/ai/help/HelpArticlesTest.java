@@ -36,6 +36,7 @@ class HelpArticlesTest {
         assertThat(a.title()).isEqualTo("Slack alerts");
         assertThat(a.summary()).isEqualTo("Alerts in Slack.");
         assertThat(a.intro()).isEqualTo("Intro text.");
+        assertThat(a.body()).startsWith("Intro text.\n\n## Setting it up\n").endsWith("Switched off.");
         assertThat(a.sections()).extracting(HelpArticles.Section::heading).containsExactly("Setting it up", "After a downgrade");
         assertThat(a.sections().getFirst().anchor()).isEqualTo("setting-it-up");
         assertThat(a.sections().getFirst().content()).isEqualTo("1. Create a webhook.\n2. Paste it.");
@@ -69,6 +70,8 @@ class HelpArticlesTest {
                 assertThat(s.content()).as("%s#%s has text", a.slug(), s.anchor()).isNotBlank();
             }
         }
+        assertThat(docs.find("slack-alerts")).hasValueSatisfying(a -> assertThat(a.title()).isEqualTo("Slack alerts"));
+        assertThat(docs.find("nope")).isEmpty();
         assertThat(docs.chunks()).allSatisfy(c -> assertThat(c.embeddingText()).startsWith(c.title() + " › " + c.heading()));
     }
 }

@@ -15,6 +15,9 @@ export default defineConfig({
     css: false,
   },
   server: {
+    // Tests only: the docs tests read the real help articles and search eval from the backend.
+    // Never for the dev server, which can be exposed through a tunnel.
+    ...(process.env.VITEST && { fs: { allow: ['.', '../src/main/resources/help', '../src/test/resources'] } }),
     // Let `cloudflared tunnel --url http://localhost:5173` expose the dev server publicly.
     allowedHosts: ['.trycloudflare.com'],
     // The Spring Boot API in development; production serves both from one origin.

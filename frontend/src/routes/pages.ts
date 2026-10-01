@@ -43,13 +43,16 @@ export const IncidentDetailPage = page(() => import('../pages/IncidentDetailPage
 export const StatusPageEditor = page(() => import('../pages/StatusPageEditor').then((m) => m.StatusPageEditor))
 export const BillingPage = page(() => import('../pages/BillingPage').then((m) => m.BillingPage))
 export const SettingsPage = page(() => import('../pages/settings/SettingsPage').then((m) => m.SettingsPage))
+export const PublicDocsLayout = page(() => import('../components/layout/PublicDocsLayout').then((m) => m.PublicDocsLayout))
+export const DocsPage = page(() => import('../pages/docs/DocsPage').then((m) => m.DocsPage))
+export const DocArticlePage = page(() => import('../pages/docs/DocArticlePage').then((m) => m.DocArticlePage))
 export const NotFoundPage = page(() => import('../pages/NotFoundPage').then((m) => m.NotFoundPage))
 
 /** Where someone can go next from each area; fetched once the browser has nothing better to do. */
 const NEXT = {
   landing: [LoginPage, SignupPage],
   auth: [LoginPage, SignupPage, ForgotPasswordPage, ResetPasswordPage, EmailLinkPage, AppLayout, MonitorsPage],
-  dashboard: [MonitorsPage, MonitorFormPage, MonitorDetailPage, IncidentsPage, IncidentDetailPage, StatusPageEditor, BillingPage, SettingsPage, NotFoundPage],
+  dashboard: [MonitorsPage, MonitorFormPage, MonitorDetailPage, IncidentsPage, IncidentDetailPage, StatusPageEditor, BillingPage, SettingsPage, DocsPage, DocArticlePage, NotFoundPage],
 } as const
 
 export type Area = keyof typeof NEXT

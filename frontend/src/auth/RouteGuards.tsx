@@ -35,6 +35,16 @@ export function RedirectIfAuthed() {
   return <Outlet />
 }
 
+/**
+ * Pages for everyone (the docs): inside the app for signed-in users, so the sidebar and Ask AI
+ * stay at hand, and in a plain public frame for visitors. Both layouts render the page's Outlet.
+ */
+export function SignedInOrPublic({ app, visitor }: { app: ReactNode; visitor: ReactNode }) {
+  const { status } = useAuth()
+  if (status === 'loading') return <FullPageSpinner />
+  return <>{status === 'authenticated' ? app : visitor}</>
+}
+
 /** "/": the landing page for visitors, the dashboard for signed-in users. */
 export function HomeRoute({ landing }: { landing: ReactNode }) {
   const { status } = useAuth()

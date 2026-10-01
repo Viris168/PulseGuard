@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -27,8 +28,12 @@ public class HelpArticles {
 
     private static final Pattern FRONT_MATTER = Pattern.compile("\\A---\\n(.*?)\\n---\\n", Pattern.DOTALL);
 
-    /** One article. {@code intro} is the text before the first section. */
-    public record Article(String slug, String title, String summary, String intro, List<Section> sections) {
+    /**
+     * One article. {@code intro} is the text before the first section; {@code body} is all the
+     * Markdown after the front matter, as the docs page shows it.
+     */
+    public record Article(String slug, String title, String summary, String intro, String body,
+                          List<Section> sections) {
     }
 
     /** One {@code ##} section; {@code anchor} is its id on the docs page. */
@@ -57,6 +62,11 @@ public class HelpArticles {
     /** Every article, by slug. */
     public List<Article> all() {
         return articles;
+    }
+
+    /** The article with this slug, if there is one. */
+    public Optional<Article> find(String slug) {
+        return articles.stream().filter(a -> a.slug().equals(slug)).findFirst();
     }
 
     /** Every section of every article, in order. */
@@ -112,7 +122,7 @@ public class HelpArticles {
             String content = lineEnd < 0 ? "" : part.substring(lineEnd + 1).strip();
             sections.add(new Section(heading, anchor(heading), content));
         }
-        return new Article(slug, title, summary, intro, List.copyOf(sections));
+        return new Article(slug, title, summary, intro, body.strip(), List.copyOf(sections));
     }
 
     /** "What counts as a failed check" → "what-counts-as-a-failed-check"; "can't" → "cant". */

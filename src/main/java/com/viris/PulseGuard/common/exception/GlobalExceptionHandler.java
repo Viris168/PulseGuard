@@ -97,6 +97,12 @@ public class GlobalExceptionHandler {
                 .body(ApiError.of(HttpStatus.NOT_FOUND.value(), ex.getMessage()));
     }
 
+    @ExceptionHandler(HelpArticleNotFoundException.class)
+    public ResponseEntity<ApiError> handleHelpArticleNotFound(HelpArticleNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiError.of(HttpStatus.NOT_FOUND.value(), ex.getMessage()));
+    }
+
     @ExceptionHandler(InvalidStatusPageException.class)
     public ResponseEntity<ApiError> handleInvalidStatusPage(InvalidStatusPageException ex) {
         return ResponseEntity.badRequest()

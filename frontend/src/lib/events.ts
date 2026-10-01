@@ -15,3 +15,10 @@ export interface AskAiPageContext {
 export function openAskAi(context: AskAiPageContext) {
   window.dispatchEvent(new CustomEvent<AskAiPageContext>(OPEN_ASK_AI, { detail: context }))
 }
+
+/** Fired on window to open the Ask AI panel as it is (no new chat); AppLayout listens. */
+export const SHOW_ASK_AI = 'pg:show-ask-ai'
+
+export function showAskAi() {
+  window.dispatchEvent(new Event(SHOW_ASK_AI))
+}

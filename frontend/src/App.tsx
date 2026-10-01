@@ -1,11 +1,13 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthProvider'
-import { HomeRoute, RedirectIfAuthed, RequireAuth } from './auth/RouteGuards'
+import { HomeRoute, RedirectIfAuthed, RequireAuth, SignedInOrPublic } from './auth/RouteGuards'
 import { PageBoundary } from './components/PageBoundary'
 import { AuthLayout } from './components/layout/AuthLayout'
 import {
   AppLayout,
   BillingPage,
+  DocArticlePage,
+  DocsPage,
   EmailLinkPage,
   ForgotPasswordPage,
   IncidentDetailPage,
@@ -16,6 +18,7 @@ import {
   MonitorFormPage,
   MonitorsPage,
   NotFoundPage,
+  PublicDocsLayout,
   PublicStatusPage,
   ResetPasswordPage,
   SettingsPage,
@@ -53,6 +56,12 @@ export default function App() {
 
             {/* Public status pages: no session, no app chrome. */}
             <Route path="status/:slug" element={<PublicStatusPage />} />
+
+            {/* The docs: public, with the app around them when signed in. */}
+            <Route element={<SignedInOrPublic app={<AppLayout />} visitor={<PublicDocsLayout />} />}>
+              <Route path="docs" element={<DocsPage />} />
+              <Route path="docs/:slug" element={<DocArticlePage />} />
+            </Route>
 
             {/* Everything else needs a session. */}
             <Route element={<RequireAuth />}>

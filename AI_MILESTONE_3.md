@@ -392,6 +392,21 @@ Each step ends with something you can run or test.
 >
 > **Then, in the browser:** open `/docs` signed out and in, follow a source link from a real
 > answer, check dark mode and a phone-width screen. About one day.
+>
+> **Part A done (1 Oct).**
+> - `HelpController` (`GET /api/help`, `GET /api/help/{slug}`, 404 `HelpArticleNotFoundException`),
+>   public in `SecurityConfig` and CLAUDE.md, cached 5 minutes; `HelpArticles.Article` gained
+>   `body` and `find`. Tested by `HelpApiIntegrationTest` (signed out, 404, POST still closed).
+> - `react-markdown` + `remark-gfm` in `components/ui/Markdown.tsx` (`anchors` gives `##` headings
+>   ids via `lib/helpAnchor.ts`); `pages/docs/DocsPage` (groups in `lib/docGroups.ts`, unknown
+>   slugs under "More") and `DocArticlePage` (scrolls to the hash; "Ask AI" signed in, "Start free"
+>   signed out). `SignedInOrPublic` picks `AppLayout` or `PublicDocsLayout`. Support →
+>   Documentation is a link; `SHOW_ASK_AI` opens the panel without starting a chat.
+> - `docs.test.tsx` (11 tests) reads the real articles and `help-eval.yaml` through Vite (allowed
+>   in `vite.config.ts` under Vitest only): every eval anchor exists on the page.
+> - Browser: list, article, anchor scroll, code block, dark at phone width checked signed in;
+>   signed out checked by API (no token: 200/200/404, other APIs 401) and by the tests, since the
+>   pane can't open a second origin to hold a signed-out session.
 
 ### Step 7: Try it for real, docs, learning folder (1 day)
 - Run the eval with real Gemini; ask ~10 questions by hand, including ones the docs don't

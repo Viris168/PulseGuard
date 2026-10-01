@@ -126,7 +126,7 @@ Entities live in `model/`, enums in `enumeration/`, and repositories in `reposit
 
 - Never commit secrets. All keys (DB, JWT secret, Stripe keys, SMTP key, AI provider keys) come from environment variables.
 - Never log passwords, tokens, API keys, or full webhook URLs.
-- `/api/stripe/webhook`, `/status/**`, `GET /api/status/{slug}` (public status page data), `/api/ping/{token}` (heartbeat pings) and `POST /api/channels/confirm` (confirming an email alert channel from its link) are the only unauthenticated endpoints besides auth routes and `/actuator/health`.
+- `/api/stripe/webhook`, `/status/**`, `GET /api/status/{slug}` (public status page data), `GET /api/help` and `GET /api/help/{slug}` (the help docs behind `/docs`), `/api/ping/{token}` (heartbeat pings) and `POST /api/channels/confirm` (confirming an email alert channel from its link) are the only unauthenticated endpoints besides auth routes and `/actuator/health`.
 
 ## Testing
 

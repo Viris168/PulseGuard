@@ -98,6 +98,8 @@ public class SecurityConfig {
                         .requestMatchers("/status/**").permitAll()
                         // Public status page data; the SPA owns /status/{slug} itself.
                         .requestMatchers(HttpMethod.GET, "/api/status/*").permitAll()
+                        // The help docs, readable signed out like a status page; the SPA owns /docs.
+                        .requestMatchers(HttpMethod.GET, "/api/help", "/api/help/*").permitAll()
                         // Heartbeat pings: the secret token in the path is the credential.
                         .requestMatchers("/api/ping/*").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/liveness",

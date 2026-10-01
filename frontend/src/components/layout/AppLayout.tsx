@@ -5,7 +5,7 @@ import { Activity, AlertTriangle, CreditCard, Globe, Menu, Moon, Settings, Sun, 
 import { cn } from '../../lib/format'
 import { getBillingSummary } from '../../api/billing'
 import { useAuth } from '../../auth/authContext'
-import { MONITORS_CHANGED, OPEN_ASK_AI, type AskAiPageContext } from '../../lib/events'
+import { MONITORS_CHANGED, OPEN_ASK_AI, SHOW_ASK_AI, type AskAiPageContext } from '../../lib/events'
 import { limitsFor, nextPlan } from '../../lib/plans'
 import { PLAN_LABEL, type Plan } from '../../types/auth'
 import { AskAiButton, SupportMenu } from './HeaderActions'
@@ -113,8 +113,17 @@ export function AppLayout() {
       setAiLoaded(true)
       setAiOpen(true)
     }
+    // "Ask AI" from a docs article: just open the panel, keeping whatever chat it has.
+    const onShow = () => {
+      setAiLoaded(true)
+      setAiOpen(true)
+    }
     window.addEventListener(OPEN_ASK_AI, onOpen)
-    return () => window.removeEventListener(OPEN_ASK_AI, onOpen)
+    window.addEventListener(SHOW_ASK_AI, onShow)
+    return () => {
+      window.removeEventListener(OPEN_ASK_AI, onOpen)
+      window.removeEventListener(SHOW_ASK_AI, onShow)
+    }
   }, [])
   const { user, logout } = useAuth()
   const navigate = useNavigate()
