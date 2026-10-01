@@ -349,10 +349,13 @@ function PlanCard({ info, summary, onChoose }: { info: PlanInfo; summary: Billin
   ]
 
   return (
-    <Card
+    // Same look as the pricing cards on the landing page, with the current plan highlighted.
+    <div
       className={cn(
-        'relative flex flex-col p-5',
-        isCurrent && 'ring-2 ring-emerald-600 dark:ring-emerald-500',
+        'relative flex flex-col rounded-xl border bg-white p-6 transition duration-200 ease-out hover:shadow-xl motion-safe:hover:-translate-y-1 dark:bg-zinc-900',
+        isCurrent
+          ? 'border-emerald-600 shadow-lg ring-1 ring-emerald-600 hover:shadow-emerald-600/20 dark:border-emerald-500 dark:ring-emerald-500'
+          : 'border-zinc-200 hover:border-emerald-300 dark:border-zinc-800 dark:hover:border-emerald-700',
       )}
     >
       {featured && !isCurrent && (
@@ -400,12 +403,21 @@ function PlanCard({ info, summary, onChoose }: { info: PlanInfo; summary: Billin
             Starts at period end
           </Button>
         ) : (
-          <Button variant={higher ? 'primary' : 'secondary'} className="w-full" onClick={onChoose}>
+          <Button
+            variant={higher ? 'primary' : 'secondary'}
+            className={cn(
+              // "!" wins over the shared button's own transition and hover background.
+              'w-full transition! active:scale-[0.98]',
+              !higher &&
+                'hover:border-emerald-600 hover:bg-emerald-50! hover:text-emerald-700 dark:hover:border-emerald-500 dark:hover:bg-emerald-950/40! dark:hover:text-emerald-300',
+            )}
+            onClick={onChoose}
+          >
             {higher ? `Upgrade to ${info.name}` : `Switch to ${info.name}`}
           </Button>
         )}
       </div>
-    </Card>
+    </div>
   )
 }
 
