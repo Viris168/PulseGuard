@@ -30,6 +30,8 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -96,7 +98,7 @@ public class MonitorService {
         if (heartbeat) {
             monitor.setHeartbeatToken(HeartbeatSchedule.newToken());
         }
-        applyRequest(monitor, request);
+        applyRequest(monitor, request, true);
         monitorRepository.save(monitor);
         // A heartbeat has nothing to schedule: the sweeper watches its deadline, which is set
         // by the first ping.
@@ -174,7 +176,7 @@ public class MonitorService {
             throw new InvalidMonitorException("type", "A monitor's type can't be changed. Create a new monitor instead.");
         }
         if (monitor.isHeartbeat()) {
-            applyRequest(monitor, request);
+            applyRequest(monitor, request, true);
             realignDeadline(monitor);
             log.info("Updated monitorId={} for userId={}", monitorId, userId);
             return toResponse(monitor);
@@ -193,7 +195,9 @@ public class MonitorService {
         // monitor UP. The entity is managed, so dirty checking flushes these edits and
         // @Version guards the write.
         int oldInterval = monitor.getIntervalSeconds();
-        applyRequest(monitor, request);
+        // Saved secrets were given for the old host; carrying them to a new one would let anyone
+        // who can edit the monitor (an API key included) have them sent to a server of their own.
+        applyRequest(monitor, request, sameOrigin(monitor.getUrl(), request.url()));
         // Only a new interval needs a new trigger; a paused monitor has no job to change,
         // and resume will schedule it with whatever interval it has by then.
         if (monitor.getIntervalSeconds() != oldInterval && monitor.isActive()) {
@@ -271,8 +275,13 @@ public class MonitorService {
         monitor.setPingDeadline(deadline);
     }
 
-    /** HTTP-only fields keep their defaults on a heartbeat (the columns are NOT NULL). */
-    private void applyRequest(Monitor monitor, MonitorRequest request) {
+    /**
+     * HTTP-only fields keep their defaults on a heartbeat (the columns are NOT NULL).
+     *
+     * @param keepSaved whether a header without a value and an absent body may reuse what is
+     *                  saved: only while the URL still points at the same origin.
+     */
+    private void applyRequest(Monitor monitor, MonitorRequest request, boolean keepSaved) {
         monitor.setName(request.name());
         monitor.setIntervalSeconds(request.intervalSeconds());
         if (monitor.isHeartbeat()) {
@@ -292,16 +301,21 @@ public class MonitorService {
             monitor.setRequestBody(null);
         } else if (body != null) {
             monitor.setRequestBody(body);
+        } else if (!keepSaved && monitor.getRequestBody() != null) {
+            throw new InvalidMonitorException("requestBody",
+                    "Enter the request body again: a saved body isn't sent to a new host");
         }
-        monitor.setHeaders(mergeHeaders(monitor.getHeaders(), request.headersOrEmpty()));
+        monitor.setHeaders(mergeHeaders(monitor.getHeaders(), request.headersOrEmpty(), keepSaved));
     }
 
     /**
      * The new header list. A header sent without a value keeps the value saved under the same
      * name: that is how an edit round-trips a secret the API never showed. With nothing saved
-     * under that name, it is an error rather than an empty header.
+     * under that name, it is an error rather than an empty header. So is one sent without a value
+     * when the URL moved to another origin ({@code keepSaved} false): the value must be typed again.
      */
-    private static List<MonitorHeader> mergeHeaders(List<MonitorHeader> saved, List<HeaderInput> requested) {
+    private static List<MonitorHeader> mergeHeaders(List<MonitorHeader> saved, List<HeaderInput> requested,
+                                                    boolean keepSaved) {
         Map<String, String> savedValues = saved.stream().collect(Collectors.toMap(
                 h -> h.getName().toLowerCase(Locale.ROOT), MonitorHeader::getValue, (a, b) -> a));
         List<MonitorHeader> merged = new ArrayList<>(requested.size());
@@ -310,6 +324,10 @@ public class MonitorService {
             String value = header.value();
             if (value == null) {
                 value = savedValues.get(name.toLowerCase(Locale.ROOT));
+                if (value != null && !keepSaved) {
+                    throw new InvalidMonitorException("headers",
+                            "Enter the " + name + " header again: saved values aren't sent to a new host");
+                }
                 if (value == null) {
                     throw new InvalidMonitorException("headers", "Enter a value for the " + name + " header");
                 }
@@ -318,6 +336,30 @@ public class MonitorService {
         }
         // A new list, not an edit of the old one: Hibernate then rewrites the rows cleanly.
         return merged;
+    }
+
+    /**
+     * Same scheme, host and port. A path change keeps secrets (the same server already gets
+     * them); anything else, including http to https, needs them typed again.
+     */
+    static boolean sameOrigin(String savedUrl, String requestedUrl) {
+        try {
+            URI saved = new URI(savedUrl);
+            URI requested = new URI(requestedUrl);
+            return saved.getScheme() != null && saved.getHost() != null
+                    && saved.getScheme().equalsIgnoreCase(requested.getScheme())
+                    && saved.getHost().equalsIgnoreCase(requested.getHost())
+                    && effectivePort(saved) == effectivePort(requested);
+        } catch (URISyntaxException e) {
+            return false;
+        }
+    }
+
+    private static int effectivePort(URI uri) {
+        if (uri.getPort() != -1) {
+            return uri.getPort();
+        }
+        return "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
     }
 
     /** Missing and other-tenant monitors both surface as 404, so ids cannot be probed. */
