@@ -153,6 +153,15 @@ class SpaRoutingIntegrationTest {
     }
 
     @Test
+    void percentEncodingCannotDisguiseAnApiPathAsAFrontendRoute() throws Exception {
+        // %61 is "a": Spring MVC decodes it and routes to the API, so the security rules must
+        // see the same decoded path, or an anonymous GET slips past "authenticated()".
+        assertThat(get("/%61pi/monitors", false).statusCode()).isEqualTo(401);
+        assertThat(get("/%61pi/monitors", true).statusCode()).isEqualTo(200);
+        assertThat(get("/%61ctuator/metrics", false).statusCode()).isEqualTo(401);
+    }
+
+    @Test
     void actuatorStillRequiresAnAdmin() throws Exception {
         assertThat(get("/actuator/metrics", false).statusCode()).isEqualTo(401);
         assertThat(get("/actuator/metrics", true).statusCode()).isEqualTo(403);
