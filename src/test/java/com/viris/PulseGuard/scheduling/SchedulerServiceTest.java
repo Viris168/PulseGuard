@@ -130,6 +130,23 @@ class SchedulerServiceTest {
     }
 
     @Test
+    void rescheduleKeepsTheNextCheckWhenItWasDue() throws Exception {
+        // Otherwise flipping between two intervals would fire a fresh check every time.
+        Date due = new Date(System.currentTimeMillis() + 240_000);
+        Trigger current = org.mockito.Mockito.mock(Trigger.class);
+        when(current.getNextFireTime()).thenReturn(due);
+        when(scheduler.getTrigger(SchedulerService.triggerKey(MONITOR_ID))).thenReturn(current);
+        ArgumentCaptor<Trigger> newTrigger = ArgumentCaptor.forClass(Trigger.class);
+        when(scheduler.rescheduleJob(eq(SchedulerService.triggerKey(MONITOR_ID)), newTrigger.capture()))
+                .thenReturn(due);
+
+        service.reschedule(monitor(MONITOR_ID, 600));
+
+        assertThat(newTrigger.getValue().getStartTime()).isEqualTo(due);
+        assertThat(((SimpleTrigger) newTrigger.getValue()).getRepeatInterval()).isEqualTo(600_000L);
+    }
+
+    @Test
     void rescheduleFallsBackToScheduleWhenNoTrigger() throws Exception {
         // null = Quartz found no old trigger to replace.
         when(scheduler.rescheduleJob(eq(SchedulerService.triggerKey(MONITOR_ID)), any(Trigger.class)))
