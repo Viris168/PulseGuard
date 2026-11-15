@@ -1,5 +1,6 @@
 package com.viris.PulseGuard.auth.security;
 
+import com.viris.PulseGuard.common.exception.RevocationUnavailableException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -7,7 +8,6 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 
 /**
  * Entries expire with the token itself, so the denylist never grows beyond the tokens
@@ -54,29 +54,37 @@ public class RedisTokenDenylist implements TokenDenylist {
     }
 
     @Override
-    public void revokeAllForUser(Long userId, Instant issuedBefore, Duration retention) {
+    public void revokeAllForUser(Long userId, Instant cutoff, Duration retention) {
         try {
-            // Second precision, matching the token's own iat claim.
-            String cutoff = String.valueOf(issuedBefore.truncatedTo(ChronoUnit.SECONDS).getEpochSecond());
-            redis.opsForValue().set(EPOCH_PREFIX + userId, cutoff, retention);
+            redis.opsForValue().set(EPOCH_PREFIX + userId, String.valueOf(cutoff.toEpochMilli()), retention);
         } catch (DataAccessException ex) {
             log.error("Could not revoke sessions for user {}: store unavailable", userId, ex);
+            throw new RevocationUnavailableException(ex);
         }
     }
 
     @Override
-    public boolean isRevokedForUser(Long userId, Instant tokenIssuedAt) {
+    public boolean isRevokedForUser(Long userId, Instant sessionStartedAt) {
         try {
-            String cutoff = redis.opsForValue().get(EPOCH_PREFIX + userId);
-            if (cutoff == null) {
+            String stored = redis.opsForValue().get(EPOCH_PREFIX + userId);
+            if (stored == null) {
                 return false;
             }
-            // Strictly before: a token minted in the same second as the cut-off is kept, so a
-            // fresh login immediately after a logout is not revoked by its own predecessor.
-            return tokenIssuedAt.getEpochSecond() < Long.parseLong(cutoff);
+            // Strictly before: the fresh pair a password change hands back starts at or after its
+            // own cut-off and is kept. An older session is revoked however recently it refreshed,
+            // because a refresh keeps the session's start.
+            return sessionStartedAt.toEpochMilli() < cutoffMillis(Long.parseLong(stored));
         } catch (DataAccessException | NumberFormatException ex) {
             log.warn("Revocation store unavailable; allowing token until it expires");
             return false;
         }
+    }
+
+    /**
+     * Cut-offs written before millisecond precision hold epoch seconds; they stay valid for one
+     * session retention after the upgrade. Epoch seconds stay below 10^11 until the year 5138.
+     */
+    static long cutoffMillis(long stored) {
+        return stored < 100_000_000_000L ? stored * 1000 : stored;
     }
 }

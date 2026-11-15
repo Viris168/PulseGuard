@@ -12,6 +12,8 @@ public record ParsedToken(
         String jti,
         TokenType type,
         Instant issuedAt,
-        Instant expiresAt
+        Instant expiresAt,
+        /** The sign-in this token descends from; a refresh keeps it, so revoke-all can end the chain. */
+        Instant sessionStartedAt
 ) {
 }

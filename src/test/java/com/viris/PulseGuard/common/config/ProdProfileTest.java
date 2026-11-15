@@ -62,6 +62,15 @@ class ProdProfileTest {
         @Override
         public void reset(String email, String clientIp) {
         }
+
+        @Override
+        public boolean tryAcquireForUser(Long userId) {
+            return true;
+        }
+
+        @Override
+        public void resetForUser(Long userId) {
+        }
     }
 
     @TestConfiguration

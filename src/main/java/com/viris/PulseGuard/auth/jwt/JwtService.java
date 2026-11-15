@@ -27,6 +27,11 @@ public class JwtService {
 
     private static final String CLAIM_EMAIL = "email";
     private static final String CLAIM_TYPE = "typ";
+    /**
+     * When the session began, in epoch milliseconds: the sign-in, carried unchanged through every
+     * refresh. Revoke-all compares against this, so a refresh cannot make a session look newer.
+     */
+    private static final String CLAIM_SESSION_START = "sst";
 
     private final SecretKey signingKey;
     private final List<JwtParser> parsers;
@@ -58,12 +63,22 @@ public class JwtService {
                 .build();
     }
 
+    /** An access token for a session starting now. */
     public String generateAccessToken(UserPrincipal principal) {
-        return generate(principal, TokenType.ACCESS, properties.accessExpiration().toSeconds());
+        return generateAccessToken(principal, Instant.now());
     }
 
+    /** A refresh token for a session starting now. */
     public String generateRefreshToken(UserPrincipal principal) {
-        return generate(principal, TokenType.REFRESH, properties.refreshExpiration().toSeconds());
+        return generateRefreshToken(principal, Instant.now());
+    }
+
+    public String generateAccessToken(UserPrincipal principal, Instant sessionStartedAt) {
+        return generate(principal, TokenType.ACCESS, properties.accessExpiration().toSeconds(), sessionStartedAt);
+    }
+
+    public String generateRefreshToken(UserPrincipal principal, Instant sessionStartedAt) {
+        return generate(principal, TokenType.REFRESH, properties.refreshExpiration().toSeconds(), sessionStartedAt);
     }
 
     public long accessTokenSeconds() {
@@ -75,7 +90,7 @@ public class JwtService {
         return properties.refreshExpiration();
     }
 
-    private String generate(UserPrincipal principal, TokenType type, long ttlSeconds) {
+    private String generate(UserPrincipal principal, TokenType type, long ttlSeconds, Instant sessionStartedAt) {
         Instant now = Instant.now();
         return Jwts.builder()
                 .id(UUID.randomUUID().toString())          // jti: the handle the denylist uses
@@ -84,6 +99,7 @@ public class JwtService {
                 .subject(String.valueOf(principal.getUserId()))
                 .claim(CLAIM_EMAIL, principal.getEmail())
                 .claim(CLAIM_TYPE, type.name())
+                .claim(CLAIM_SESSION_START, sessionStartedAt.toEpochMilli())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusSeconds(ttlSeconds)))
                 .signWith(signingKey)
@@ -115,7 +131,8 @@ public class JwtService {
                 claims.getId(),
                 parseType(claims),
                 parseIssuedAt(claims),
-                claims.getExpiration().toInstant()
+                claims.getExpiration().toInstant(),
+                parseSessionStart(claims)
         );
     }
 
@@ -142,5 +159,17 @@ public class JwtService {
             throw new MalformedJwtException("Token has no issued-at claim");
         }
         return issuedAt.toInstant();
+    }
+
+    /** Tokens issued before the claim existed fall back to their issued-at, which is no later. */
+    private Instant parseSessionStart(Claims claims) {
+        Object raw = claims.get(CLAIM_SESSION_START);
+        if (raw == null) {
+            return parseIssuedAt(claims);
+        }
+        if (!(raw instanceof Number millis)) {
+            throw new MalformedJwtException("Token has no usable session-start claim");
+        }
+        return Instant.ofEpochMilli(millis.longValue());
     }
 }

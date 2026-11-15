@@ -18,6 +18,7 @@ public class RedisLoginRateLimiter implements LoginRateLimiter {
 
     private static final String PAIR_PREFIX = "login:attempts:";
     private static final String IP_PREFIX = "login:ip:";
+    private static final String USER_PREFIX = "login:user:";
 
     private final StringRedisTemplate redis;
     private final int maxAttempts;
@@ -59,6 +60,28 @@ public class RedisLoginRateLimiter implements LoginRateLimiter {
         } catch (DataAccessException ex) {
             fallback.reset(PAIR_PREFIX + clientIp + ":" + email);
             log.warn("Rate-limit store unavailable; attempt counter not cleared");
+        }
+    }
+
+    @Override
+    public boolean tryAcquireForUser(Long userId) {
+        String key = USER_PREFIX + userId;
+        try {
+            return increment(key) <= maxAttempts;
+        } catch (DataAccessException ex) {
+            log.warn("Rate-limit store unavailable; counting password checks locally");
+            return fallback.increment(key, window) <= maxAttempts;
+        }
+    }
+
+    @Override
+    public void resetForUser(Long userId) {
+        String key = USER_PREFIX + userId;
+        fallback.reset(key);
+        try {
+            redis.delete(key);
+        } catch (DataAccessException ex) {
+            log.warn("Rate-limit store unavailable; password check counter not cleared");
         }
     }
 

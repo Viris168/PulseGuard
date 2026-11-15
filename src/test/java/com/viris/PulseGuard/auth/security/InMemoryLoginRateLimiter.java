@@ -8,6 +8,7 @@ public class InMemoryLoginRateLimiter implements LoginRateLimiter {
 
     private final Map<String, Integer> pairAttempts = new ConcurrentHashMap<>();
     private final Map<String, Integer> ipAttempts = new ConcurrentHashMap<>();
+    private final Map<Long, Integer> userAttempts = new ConcurrentHashMap<>();
     private final int maxAttempts;
     private final int maxAttemptsPerIp;
 
@@ -26,5 +27,15 @@ public class InMemoryLoginRateLimiter implements LoginRateLimiter {
     @Override
     public void reset(String email, String clientIp) {
         pairAttempts.remove(clientIp + ":" + email);
+    }
+
+    @Override
+    public boolean tryAcquireForUser(Long userId) {
+        return userAttempts.merge(userId, 1, Integer::sum) <= maxAttempts;
+    }
+
+    @Override
+    public void resetForUser(Long userId) {
+        userAttempts.remove(userId);
     }
 }

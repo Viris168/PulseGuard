@@ -18,4 +18,16 @@ public interface LoginRateLimiter {
 
     /** Called after a successful login so a legitimate user is not punished for earlier typos. */
     void reset(String email, String clientIp);
+
+    /**
+     * Throttles re-entering the current password while signed in (password change, email change,
+     * account deletion). Keyed by user alone: whoever holds the session can change IP at will, and
+     * locking out these actions does not lock the owner out of signing in.
+     *
+     * @return true when this user still has attempts left.
+     */
+    boolean tryAcquireForUser(Long userId);
+
+    /** Called after the current password matched. */
+    void resetForUser(Long userId);
 }

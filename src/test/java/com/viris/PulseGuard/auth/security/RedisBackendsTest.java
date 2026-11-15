@@ -77,12 +77,26 @@ class RedisBackendsTest {
     }
 
     @Test
-    void keepsATokenMintedInTheSameSecondAsTheCutoff() {
+    void keepsASessionStartedAtTheCutoff() {
         Instant now = Instant.now();
         denylist.revokeAllForUser(1L, now, Duration.ofDays(30));
 
-        // A fresh login right after a logout must not be revoked by its own predecessor.
+        // The fresh pair a password change hands back must not be revoked by its own cut-off.
         assertThat(denylist.isRevokedForUser(1L, now)).isFalse();
+    }
+
+    @Test
+    void revokesASessionStartedEarlierInTheSameSecond() {
+        Instant cutoff = Instant.parse("2026-11-15T10:00:00.900Z");
+        denylist.revokeAllForUser(1L, cutoff, Duration.ofDays(30));
+
+        assertThat(denylist.isRevokedForUser(1L, Instant.parse("2026-11-15T10:00:00.100Z"))).isTrue();
+    }
+
+    @Test
+    void readsCutoffsStoredInSecondsBeforeTheUpgrade() {
+        assertThat(RedisTokenDenylist.cutoffMillis(1_794_000_000L)).isEqualTo(1_794_000_000_000L);
+        assertThat(RedisTokenDenylist.cutoffMillis(1_794_000_000_123L)).isEqualTo(1_794_000_000_123L);
     }
 
     // --- rate limiter -----------------------------------------------------
