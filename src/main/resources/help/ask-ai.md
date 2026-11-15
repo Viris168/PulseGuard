@@ -64,9 +64,10 @@ that fails before any answer appears isn't counted. The panel shows how many you
 ## Privacy and accuracy
 
 To write an answer, your question and the data it needs (monitor names, figures, incidents,
-error messages) are sent to the AI provider PulseGuard uses. Monitor URLs, headers, ping URLs,
-alert targets and API keys are never sent. Ask AI isn't available through API keys, only when
-you're signed in.
+error messages) are sent to the AI provider PulseGuard uses. The same sharing setting covers AI
+incident summaries: only incidents on monitors you shared are summarised by the AI. Monitor
+URLs, headers, ping URLs, alert targets and API keys are never sent. Ask AI isn't available
+through API keys, only when you're signed in.
 
 **Answers can be wrong.** Ask AI shows what it looked up so you can check, and the monitor and
 incident pages always have the real figures.

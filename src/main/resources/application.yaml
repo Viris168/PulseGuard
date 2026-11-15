@@ -212,6 +212,9 @@ pulseguard:
   ai:
     # An open incident's summary is rewritten at most this often; a resolved one is written once.
     open-summary-ttl: ${PULSEGUARD_AI_OPEN_SUMMARY_TTL:10m}
+    # One summary call per incident at a time; after a failure, the next try waits this long.
+    # Must be longer than the timeout below, or a slow call could be joined by a second one.
+    summary-retry-after: ${PULSEGUARD_AI_SUMMARY_RETRY_AFTER:1m}
     # A summary is waited on by a page view: past this, the page shows its rule-based summary.
     # Enforced here for every provider, since not all of them expose a client timeout.
     timeout: ${PULSEGUARD_AI_TIMEOUT:20s}
