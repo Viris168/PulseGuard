@@ -38,4 +38,10 @@ public class InMemoryLoginRateLimiter implements LoginRateLimiter {
     public void resetForUser(Long userId) {
         userAttempts.remove(userId);
     }
+
+    /** Unlimited: tests sign up many users from one address. RedisBackendsTest covers the limit. */
+    @Override
+    public boolean tryAcquireRegistration(String clientIp) {
+        return true;
+    }
 }

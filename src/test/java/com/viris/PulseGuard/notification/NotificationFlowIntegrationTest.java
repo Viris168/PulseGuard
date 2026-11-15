@@ -137,7 +137,7 @@ class NotificationFlowIntegrationTest {
     }
 
     private User register(String email) {
-        authService.register(new RegisterRequest("Owner", email, "Sup3rSecret!"));
+        authService.register(new RegisterRequest("Owner", email, "Sup3rSecret!"), "203.0.113.7");
         TestAccounts.awaitVerificationEmail(mailSender, email);
         return TestAccounts.markVerified(users, email);
     }

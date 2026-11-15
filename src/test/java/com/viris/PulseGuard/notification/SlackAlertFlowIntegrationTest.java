@@ -137,7 +137,7 @@ class SlackAlertFlowIntegrationTest {
     }
 
     private User register(String email, Plan plan) {
-        authService.register(new RegisterRequest("Owner", email, "Sup3rSecret!"));
+        authService.register(new RegisterRequest("Owner", email, "Sup3rSecret!"), "203.0.113.7");
         TestAccounts.awaitVerificationEmail(mailSender, email);
         User user = TestAccounts.markVerified(users, email);
         user.setPlan(plan);

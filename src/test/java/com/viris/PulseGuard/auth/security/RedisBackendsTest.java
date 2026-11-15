@@ -38,7 +38,7 @@ class RedisBackendsTest {
     void setUp() {
         redis.getConnectionFactory().getConnection().serverCommands().flushAll();
         denylist = new RedisTokenDenylist(redis);
-        rateLimiter = new RedisLoginRateLimiter(redis, 5, 20, Duration.ofMinutes(15));
+        rateLimiter = new RedisLoginRateLimiter(redis, 5, 20, 3, Duration.ofMinutes(15));
     }
 
     // --- denylist ---------------------------------------------------------
@@ -107,6 +107,15 @@ class RedisBackendsTest {
             assertThat(rateLimiter.tryAcquire("a@example.com", "10.0.0.1")).isTrue();
         }
         assertThat(rateLimiter.tryAcquire("a@example.com", "10.0.0.1")).isFalse();
+    }
+
+    @Test
+    void capsSignUpsPerAddressSoRegistrationCannotProbeEveryEmail() {
+        for (int i = 0; i < 3; i++) {
+            assertThat(rateLimiter.tryAcquireRegistration("10.0.0.7")).isTrue();
+        }
+        assertThat(rateLimiter.tryAcquireRegistration("10.0.0.7")).isFalse();
+        assertThat(rateLimiter.tryAcquireRegistration("10.0.0.8")).isTrue();
     }
 
     @Test

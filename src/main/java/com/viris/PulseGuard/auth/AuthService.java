@@ -54,7 +54,12 @@ public class AuthService {
     private final EmailTokenRepository emailTokens;
 
     @Transactional
-    public AuthResponse register(RegisterRequest request) {
+    public AuthResponse register(RegisterRequest request, String clientIp) {
+        // Before the lookup: "already registered" must not be an unlimited account-exists oracle.
+        if (!rateLimiter.tryAcquireRegistration(clientIp)) {
+            log.warn("Registration rate limit hit from {}", clientIp);
+            throw new TooManyAttemptsException("Too many sign-ups from this network. Try again later.");
+        }
         String email = UserMapper.normalizeEmail(request.email());
         if (users.existsByEmail(email)) {
             throw new EmailAlreadyUsedException(email);
