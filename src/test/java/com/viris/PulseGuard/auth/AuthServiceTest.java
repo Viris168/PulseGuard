@@ -74,7 +74,8 @@ class AuthServiceTest {
         authService = new AuthService(users, passwordEncoder, new ProviderManager(provider),
                 jwtService, new CurrentPasswordCheck(passwordEncoder, rateLimiter), denylist, rateLimiter, channels,
                 org.mockito.Mockito.mock(com.viris.PulseGuard.auth.account.EmailVerificationService.class),
-                org.mockito.Mockito.mock(com.viris.PulseGuard.apikey.ApiKeyRepository.class));
+                org.mockito.Mockito.mock(com.viris.PulseGuard.apikey.ApiKeyRepository.class),
+                org.mockito.Mockito.mock(com.viris.PulseGuard.auth.account.EmailTokenRepository.class));
     }
 
     private User storedUser() {

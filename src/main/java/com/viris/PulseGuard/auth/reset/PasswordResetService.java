@@ -4,12 +4,14 @@ import com.viris.PulseGuard.apikey.ApiKeyRepository;
 import com.viris.PulseGuard.auth.User;
 import com.viris.PulseGuard.auth.UserRepository;
 import com.viris.PulseGuard.auth.account.AccountEmailProperties;
+import com.viris.PulseGuard.auth.account.EmailTokenRepository;
 import com.viris.PulseGuard.auth.account.EmailSendThrottle;
 import com.viris.PulseGuard.auth.account.SecureTokens;
 import com.viris.PulseGuard.auth.jwt.JwtService;
 import com.viris.PulseGuard.auth.jwt.UserMapper;
 import com.viris.PulseGuard.auth.security.TokenDenylist;
 import com.viris.PulseGuard.common.exception.InvalidResetTokenException;
+import com.viris.PulseGuard.enumeration.EmailTokenPurpose;
 import com.viris.PulseGuard.common.exception.TooManyAttemptsException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,11 +43,13 @@ public class PasswordResetService {
     private final AccountEmailProperties properties;
     private final ApplicationEventPublisher events;
     private final ApiKeyRepository apiKeys;
+    private final EmailTokenRepository emailTokens;
 
     public PasswordResetService(UserRepository users, PasswordResetTokenRepository tokens,
                                 PasswordEncoder passwordEncoder, TokenDenylist denylist, JwtService jwtService,
                                 EmailSendThrottle throttle, AccountEmailProperties properties,
-                                ApplicationEventPublisher events, ApiKeyRepository apiKeys) {
+                                ApplicationEventPublisher events, ApiKeyRepository apiKeys,
+                                EmailTokenRepository emailTokens) {
         this.users = users;
         this.tokens = tokens;
         this.passwordEncoder = passwordEncoder;
@@ -55,6 +59,7 @@ public class PasswordResetService {
         this.properties = properties;
         this.events = events;
         this.apiKeys = apiKeys;
+        this.emailTokens = emailTokens;
     }
 
     /** Emails a reset link if the address belongs to an active account; otherwise does nothing. */
@@ -106,6 +111,9 @@ public class PasswordResetService {
         denylist.revokeAllForUser(user.getId(), Instant.now(), jwtService.sessionRetention());
         // A reset is the "I lost control of my account" path: keys go too.
         int keys = apiKeys.deleteAllForUser(user.getId());
+        // And a pending email change: its link went to an address the intruder may own, and
+        // confirming it later would hand them the account back through the next reset.
+        emailTokens.deleteAllForUser(user.getId(), EmailTokenPurpose.CHANGE);
         log.info("Password reset for user {}; all sessions and {} API key(s) revoked", user.getId(), keys);
     }
 }

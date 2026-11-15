@@ -1,6 +1,7 @@
 package com.viris.PulseGuard.auth;
 
 import com.viris.PulseGuard.apikey.ApiKeyRepository;
+import com.viris.PulseGuard.auth.account.EmailTokenRepository;
 import com.viris.PulseGuard.auth.account.EmailVerificationService;
 import com.viris.PulseGuard.auth.dto.AuthResponse;
 import com.viris.PulseGuard.auth.dto.UpdateProfileRequest;
@@ -20,6 +21,7 @@ import com.viris.PulseGuard.common.exception.InvalidCredentialsException;
 import com.viris.PulseGuard.common.exception.PasswordUnchangedException;
 import com.viris.PulseGuard.common.exception.TooManyAttemptsException;
 import com.viris.PulseGuard.enumeration.ChannelType;
+import com.viris.PulseGuard.enumeration.EmailTokenPurpose;
 import com.viris.PulseGuard.notification.NotificationChannel;
 import com.viris.PulseGuard.notification.repository.NotificationChannelRepository;
 import io.jsonwebtoken.JwtException;
@@ -49,6 +51,7 @@ public class AuthService {
     private final NotificationChannelRepository channels;
     private final EmailVerificationService emailVerification;
     private final ApiKeyRepository apiKeys;
+    private final EmailTokenRepository emailTokens;
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
@@ -192,6 +195,8 @@ public class AuthService {
         denylist.revokeAllForUser(user.getId(), Instant.now(), jwtService.sessionRetention());
         // Keys are credentials too: if the password leaked, so may have anything made with it.
         int keys = apiKeys.deleteAllForUser(user.getId());
+        // A pending email change may have been started by whoever knew the old password.
+        emailTokens.deleteAllForUser(user.getId(), EmailTokenPurpose.CHANGE);
         log.info("Password changed for user {}; all sessions and {} API key(s) revoked", user.getId(), keys);
 
         return issueTokens(UserPrincipal.from(user), UserMapper.from(user));
