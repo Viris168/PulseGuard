@@ -18,8 +18,12 @@ public final class LocalFixedWindow {
     private record Window(long count, Instant expiresAt) {
     }
 
+    /** A full scan for expired windows runs at most this often, so a flood can't make each call pay for one. */
+    static final Duration PURGE_INTERVAL = Duration.ofSeconds(1);
+
     private final ConcurrentHashMap<String, Window> windows = new ConcurrentHashMap<>();
     private final Clock clock;
+    private volatile Instant lastPurge = Instant.MIN;
 
     public LocalFixedWindow() {
         this(Clock.systemUTC());
@@ -29,13 +33,25 @@ public final class LocalFixedWindow {
         this.clock = clock;
     }
 
-    /** Counts one more event for {@code key}; the window starts at the first one, as in Redis. */
+    /**
+     * Counts one more event for {@code key}; the window starts at the first one, as in Redis.
+     *
+     * @return the count so far, or {@link Long#MAX_VALUE} (over any limit) for a new key while
+     *         the table is full of live windows.
+     */
     public long increment(String key, Duration window) {
         Instant now = clock.instant();
-        if (windows.size() >= MAX_KEYS) {
-            windows.values().removeIf(w -> !w.expiresAt().isAfter(now));
+        if (windows.size() >= MAX_KEYS && !windows.containsKey(key)) {
+            if (!now.isBefore(lastPurge.plus(PURGE_INTERVAL))) {
+                lastPurge = now;
+                windows.values().removeIf(w -> !w.expiresAt().isAfter(now));
+            }
             if (windows.size() >= MAX_KEYS) {
-                windows.clear(); // still full: an attack on the fallback itself; start over
+                // Still full: someone is filling the fallback on purpose. Clearing it would wipe
+                // the counters that are holding them back (a victim's login attempts included),
+                // so the keys already counted keep counting and new ones are refused until
+                // windows expire.
+                return Long.MAX_VALUE;
             }
         }
         return windows.compute(key, (k, w) -> w == null || !w.expiresAt().isAfter(now)

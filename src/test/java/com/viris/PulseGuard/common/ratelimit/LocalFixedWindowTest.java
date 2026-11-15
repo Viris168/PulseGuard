@@ -51,4 +51,32 @@ class LocalFixedWindowTest {
 
         assertThat(counter.increment("a", Duration.ofMinutes(1))).isEqualTo(1);
     }
+
+    @Test
+    void floodingTheTableDoesNotWipeTheCountersAlreadyKept() {
+        Duration window = Duration.ofMinutes(15);
+        for (int i = 0; i < 5; i++) {
+            counter.increment("victim", window);
+        }
+        for (int i = 1; i < LocalFixedWindow.MAX_KEYS; i++) {
+            counter.increment("junk-" + i, window);
+        }
+
+        // The victim's count survives, so a limit on it still holds...
+        assertThat(counter.increment("victim", window)).isEqualTo(6);
+        // ...and a key the full table cannot take is refused rather than let through.
+        assertThat(counter.increment("one-too-many", window)).isEqualTo(Long.MAX_VALUE);
+    }
+
+    @Test
+    void aFullTableMakesRoomOnceWindowsExpire() {
+        Duration window = Duration.ofMinutes(1);
+        for (int i = 0; i < LocalFixedWindow.MAX_KEYS; i++) {
+            counter.increment("old-" + i, window);
+        }
+
+        now.set(now.get().plus(window));
+
+        assertThat(counter.increment("new", window)).isEqualTo(1);
+    }
 }
