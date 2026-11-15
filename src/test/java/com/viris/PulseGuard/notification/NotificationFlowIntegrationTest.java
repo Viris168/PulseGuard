@@ -11,6 +11,7 @@ import com.viris.PulseGuard.auth.security.InMemoryTokenDenylist;
 import com.viris.PulseGuard.auth.security.LoginRateLimiter;
 import com.viris.PulseGuard.auth.security.TokenDenylist;
 import com.viris.PulseGuard.common.net.SafeUrlValidator;
+import com.viris.PulseGuard.common.net.TestUrlValidators;
 import com.viris.PulseGuard.enumeration.ChannelType;
 import com.viris.PulseGuard.enumeration.NotificationStatus;
 import com.viris.PulseGuard.enumeration.NotificationEventType;
@@ -43,7 +44,6 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.net.InetAddress;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -93,7 +93,7 @@ class NotificationFlowIntegrationTest {
         @Bean
         @Primary
         SafeUrlValidator permissiveUrlValidator() {
-            return new SafeUrlValidator(host -> new InetAddress[]{InetAddress.getByName("93.184.216.34")});
+            return TestUrlValidators.allowingLoopback();
         }
     }
 

@@ -1,6 +1,7 @@
 package com.viris.PulseGuard.check;
 
 import com.viris.PulseGuard.common.net.SafeUrlValidator;
+import com.viris.PulseGuard.common.net.TestUrlValidators;
 import com.viris.PulseGuard.enumeration.CheckResult;
 import com.viris.PulseGuard.enumeration.ErrorType;
 import com.viris.PulseGuard.monitor.Monitor;
@@ -18,6 +19,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -49,13 +51,11 @@ class CheckExecutorTest {
         when(checkRepository.save(any(Check.class))).thenAnswer(call -> call.getArgument(0));
 
         // Loopback is what MockWebServer listens on, so the real validator would (correctly)
-        // reject it. Stub resolution to a public address; SSRF itself is covered below and
-        // in SafeUrlValidatorTest.
-        SafeUrlValidator permissive = new SafeUrlValidator(
-                host -> new InetAddress[]{InetAddress.getByName("93.184.216.34")});
+        // reject it. Allow loopback only; SSRF itself is covered below and in SafeUrlValidatorTest.
+        SafeUrlValidator permissive = TestUrlValidators.allowingLoopback();
 
         executor = new CheckExecutor(
-                new CheckClientConfig().checkWebClient(PROPERTIES),
+                new CheckClientConfig().checkWebClient(PROPERTIES, permissive),
                 checkRepository, permissive, PROPERTIES);
     }
 
@@ -241,7 +241,7 @@ class CheckExecutorTest {
         SafeUrlValidator strict = new SafeUrlValidator(
                 host -> new InetAddress[]{InetAddress.getByName("10.0.0.1")});
         CheckExecutor guarded = new CheckExecutor(
-                new CheckClientConfig().checkWebClient(PROPERTIES),
+                new CheckClientConfig().checkWebClient(PROPERTIES, strict),
                 checkRepository, strict, PROPERTIES);
 
         Check check = guarded.execute(monitor(200, 5000));
@@ -253,12 +253,52 @@ class CheckExecutorTest {
     }
 
     @Test
+    void connectsOnlyToTheAddressThatPassedWhenDnsChangesBetweenLookups() {
+        // DNS rebinding between the executor's check and the client's lookup: a zero-TTL host
+        // answers public first, then loopback. The second answer must be checked, not dialled.
+        AtomicInteger lookups = new AtomicInteger();
+        SafeUrlValidator rebinding = new SafeUrlValidator(host -> new InetAddress[]{
+                InetAddress.getByName(lookups.getAndIncrement() == 0 ? "93.184.216.34" : "127.0.0.1")});
+        CheckExecutor guarded = new CheckExecutor(
+                new CheckClientConfig().checkWebClient(PROPERTIES, rebinding),
+                checkRepository, rebinding, PROPERTIES);
+        server.enqueue(new MockResponse().setResponseCode(200));
+
+        Check check = guarded.execute(monitor(200, 5000));
+
+        assertThat(check.getResult()).isEqualTo(CheckResult.DOWN);
+        assertThat(check.getErrorType()).isEqualTo(ErrorType.CONNECTION);
+        assertThat(check.getErrorMessage()).contains("private or reserved").doesNotContain("127.0.0.1");
+        assertThat(lookups.get()).isEqualTo(2);
+        assertThat(server.getRequestCount()).isZero();
+    }
+
+    @Test
+    void theClientRefusesAPrivateIpLiteralEvenIfTheEarlyCheckPassed() {
+        // IP literals skip DNS, so they must not skip the client's own check either.
+        SafeUrlValidator stubbedPublic = new SafeUrlValidator(
+                host -> new InetAddress[]{InetAddress.getByName("93.184.216.34")});
+        CheckExecutor guarded = new CheckExecutor(
+                new CheckClientConfig().checkWebClient(PROPERTIES, new SafeUrlValidator()),
+                checkRepository, stubbedPublic, PROPERTIES);
+        server.enqueue(new MockResponse().setResponseCode(200));
+        Monitor monitor = monitor(200, 5000);
+        monitor.setUrl("http://127.0.0.1:" + server.getPort() + "/health");
+
+        Check check = guarded.execute(monitor);
+
+        assertThat(check.getResult()).isEqualTo(CheckResult.DOWN);
+        assertThat(check.getErrorType()).isEqualTo(ErrorType.CONNECTION);
+        assertThat(server.getRequestCount()).isZero();
+    }
+
+    @Test
     void recordsDnsErrorWhenTheHostDoesNotResolve() {
         SafeUrlValidator failing = new SafeUrlValidator(host -> {
             throw new java.net.UnknownHostException(host);
         });
         CheckExecutor guarded = new CheckExecutor(
-                new CheckClientConfig().checkWebClient(PROPERTIES),
+                new CheckClientConfig().checkWebClient(PROPERTIES, failing),
                 checkRepository, failing, PROPERTIES);
 
         Check check = guarded.execute(monitor(200, 5000));
@@ -271,11 +311,10 @@ class CheckExecutorTest {
     void truncatesLongErrorMessages() {
         CheckProperties shortLimit = new CheckProperties(
                 Duration.ofSeconds(2), Duration.ofSeconds(1), "PulseGuard-Test/1.0", 20);
+        SafeUrlValidator permissive = TestUrlValidators.allowingLoopback();
         CheckExecutor limited = new CheckExecutor(
-                new CheckClientConfig().checkWebClient(shortLimit),
-                checkRepository, new SafeUrlValidator(
-                        host -> new InetAddress[]{InetAddress.getByName("93.184.216.34")}),
-                shortLimit);
+                new CheckClientConfig().checkWebClient(shortLimit, permissive),
+                checkRepository, permissive, shortLimit);
         server.enqueue(new MockResponse().setResponseCode(503));
 
         Check check = limited.execute(monitor(200, 5000));
