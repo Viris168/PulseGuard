@@ -28,6 +28,14 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> lockByStripeCustomerId(@Param("customerId") String customerId);
 
     /**
+     * The user, row-locked until the transaction ends. Plan limits count rows and then insert one;
+     * without the lock, simultaneous creates each count the same total and all get past the limit.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT u FROM User u WHERE u.id = :id")
+    Optional<User> lockById(@Param("id") Long id);
+
+    /**
      * Links the Stripe customer, touching only that column. A full save of a user read earlier
      * could write back a stale plan over one a webhook just changed. First link wins.
      *

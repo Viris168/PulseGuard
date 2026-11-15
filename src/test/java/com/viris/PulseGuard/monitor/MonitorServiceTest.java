@@ -89,7 +89,7 @@ class MonitorServiceTest {
 
     @Test
     void createSavesMonitorOwnedByTheRequestingUser() {
-        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(owner));
+        when(userRepository.lockById(OWNER_ID)).thenReturn(Optional.of(owner));
         when(monitorRepository.countByUserId(OWNER_ID)).thenReturn(0L);
 
         MonitorResponse response = service.createMonitor(OWNER_ID, request());
@@ -101,7 +101,7 @@ class MonitorServiceTest {
 
     @Test
     void createSchedulesTheNewMonitor() {
-        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(owner));
+        when(userRepository.lockById(OWNER_ID)).thenReturn(Optional.of(owner));
         when(monitorRepository.countByUserId(OWNER_ID)).thenReturn(0L);
 
         service.createMonitor(OWNER_ID, request());
@@ -111,7 +111,7 @@ class MonitorServiceTest {
 
     @Test
     void createRejectsUrlThatFailsSsrfValidation() {
-        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(owner));
+        when(userRepository.lockById(OWNER_ID)).thenReturn(Optional.of(owner));
         doThrow(new InvalidMonitorUrlException("host resolves to a private or reserved address"))
                 .when(urlValidator).validate(anyString());
 
@@ -124,7 +124,7 @@ class MonitorServiceTest {
     @Test
     void createRejectsWhenPlanMonitorCapIsReached() {
         owner.setPlan(Plan.FREE);
-        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(owner));
+        when(userRepository.lockById(OWNER_ID)).thenReturn(Optional.of(owner));
         when(monitorRepository.countByUserId(OWNER_ID)).thenReturn(3L); // FREE allows 3
 
         assertThatThrownBy(() -> service.createMonitor(OWNER_ID, request("https://example.com/health", 300)))
@@ -137,7 +137,7 @@ class MonitorServiceTest {
     @Test
     void createRejectsIntervalBelowThePlanMinimum() {
         owner.setPlan(Plan.FREE);
-        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(owner));
+        when(userRepository.lockById(OWNER_ID)).thenReturn(Optional.of(owner));
         when(monitorRepository.countByUserId(OWNER_ID)).thenReturn(0L);
 
         // 60s passes DTO validation but FREE requires 300s.
@@ -151,7 +151,7 @@ class MonitorServiceTest {
     @Test
     void createAllowsBusinessPlanPastTheProCap() {
         owner.setPlan(Plan.BUSINESS);
-        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(owner));
+        when(userRepository.lockById(OWNER_ID)).thenReturn(Optional.of(owner));
         when(monitorRepository.countByUserId(OWNER_ID)).thenReturn(500L);
 
         assertThatCode(() -> service.createMonitor(OWNER_ID, request())).doesNotThrowAnyException();
@@ -389,5 +389,28 @@ class MonitorServiceTest {
     })
     void sameOriginComparesSchemeHostAndPortOnly(String saved, String requested, boolean same) {
         assertThat(MonitorService.sameOrigin(saved, requested)).isEqualTo(same);
+    }
+
+    @Test
+    void resumingAnActiveMonitorDoesNotRescheduleIt() {
+        Monitor monitor = ownedMonitor();
+        monitor.setActive(true);
+        when(monitorRepository.findByIdAndUserId(MONITOR_ID, OWNER_ID)).thenReturn(Optional.of(monitor));
+
+        // Each reschedule fires a check within the jitter; resuming in a loop must not force checks.
+        service.resumeMonitor(OWNER_ID, MONITOR_ID);
+
+        verify(schedulerService, never()).schedule(any());
+    }
+
+    @Test
+    void pausingAPausedMonitorLeavesTheSchedulerAlone() {
+        Monitor monitor = ownedMonitor();
+        monitor.setActive(false);
+        when(monitorRepository.findByIdAndUserId(MONITOR_ID, OWNER_ID)).thenReturn(Optional.of(monitor));
+
+        service.pauseMonitor(OWNER_ID, MONITOR_ID);
+
+        verify(schedulerService, never()).unschedule(any());
     }
 }

@@ -48,4 +48,9 @@ public enum SubscriptionStatus {
     public boolean grantsPlan() {
         return grantsPlan;
     }
+
+    /** Over for good: it will never bill again. Every other status can still charge the card. */
+    public boolean hasEnded() {
+        return this == CANCELED || this == INCOMPLETE_EXPIRED;
+    }
 }

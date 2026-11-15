@@ -64,7 +64,7 @@ public class ChannelConfirmationService {
         row.setExpiresAt(Instant.now().plus(properties.verifyTokenTtl()));
         tokens.save(row);
         events.publishEvent(new AccountEmailEvents.ChannelConfirmationRequested(
-                address, owner.getName(), token, row.getExpiresAt()));
+                address, owner.getName(), owner.getEmail(), token, row.getExpiresAt()));
     }
 
     /** From the emailed link; works for anyone holding it, signed in or not. */

@@ -55,6 +55,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -340,6 +341,19 @@ class AccountManagementIntegrationTest {
         assertThat(monitors.findAllByUserId(user.getId())).isEmpty();
         assertThat(subscriptions.findByUserId(user.getId())).isEmpty();
         me().andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void deletingCancelsEveryLiveSubscriptionNotJustTheStoredOne() throws Exception {
+        User user = subscribe();
+        // A second checkout finished in another tab: Stripe has it, our row only has sub_123.
+        when(stripe.liveSubscriptionIds("cus_alice")).thenReturn(List.of("sub_123", "sub_second"));
+
+        deleteAccount("Sup3rSecret!").andExpect(status().isNoContent());
+
+        verify(stripe).cancelSubscription("sub_123");
+        verify(stripe).cancelSubscription("sub_second");
+        assertThat(users.findById(user.getId())).isEmpty();
     }
 
     @Test

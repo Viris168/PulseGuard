@@ -19,20 +19,24 @@ public class RedisLoginRateLimiter implements LoginRateLimiter {
     private static final String PAIR_PREFIX = "login:attempts:";
     private static final String IP_PREFIX = "login:ip:";
     private static final String USER_PREFIX = "login:user:";
+    private static final String REGISTER_PREFIX = "register:ip:";
 
     private final StringRedisTemplate redis;
     private final int maxAttempts;
     private final int maxAttemptsPerIp;
+    private final int maxRegistrationsPerIp;
     private final Duration window;
     private final LocalFixedWindow fallback = new LocalFixedWindow();
 
     public RedisLoginRateLimiter(StringRedisTemplate redis,
                                  @Value("${pulseguard.login.max-attempts}") int maxAttempts,
                                  @Value("${pulseguard.login.max-attempts-per-ip}") int maxAttemptsPerIp,
+                                 @Value("${pulseguard.login.max-registrations-per-ip}") int maxRegistrationsPerIp,
                                  @Value("${pulseguard.login.window}") Duration window) {
         this.redis = redis;
         this.maxAttempts = maxAttempts;
         this.maxAttemptsPerIp = maxAttemptsPerIp;
+        this.maxRegistrationsPerIp = maxRegistrationsPerIp;
         this.window = window;
     }
 
@@ -82,6 +86,17 @@ public class RedisLoginRateLimiter implements LoginRateLimiter {
             redis.delete(key);
         } catch (DataAccessException ex) {
             log.warn("Rate-limit store unavailable; password check counter not cleared");
+        }
+    }
+
+    @Override
+    public boolean tryAcquireRegistration(String clientIp) {
+        String key = REGISTER_PREFIX + clientIp;
+        try {
+            return increment(key) <= maxRegistrationsPerIp;
+        } catch (DataAccessException ex) {
+            log.warn("Rate-limit store unavailable; counting registrations locally");
+            return fallback.increment(key, window) <= maxRegistrationsPerIp;
         }
     }
 

@@ -7,6 +7,7 @@ import com.stripe.model.SubscriptionItem;
 import com.stripe.net.RequestOptions;
 import com.stripe.param.CustomerCreateParams;
 import com.stripe.param.CustomerUpdateParams;
+import com.stripe.param.SubscriptionListParams;
 import com.stripe.param.checkout.SessionCreateParams;
 import com.viris.PulseGuard.common.exception.PaymentProviderException;
 import org.slf4j.Logger;
@@ -92,6 +93,23 @@ public class StripeSdkGateway implements StripeGateway {
             client.v1().subscriptions().cancel(subscriptionId);
         } catch (StripeException e) {
             throw failure("cancel subscription " + subscriptionId, e);
+        }
+    }
+
+    @Override
+    public List<String> liveSubscriptionIds(String customerId) {
+        // The list leaves out canceled subscriptions by default. 100 is the page maximum; a
+        // customer with more live subscriptions than that is not something checkout can produce.
+        SubscriptionListParams params = SubscriptionListParams.builder()
+                .setCustomer(customerId)
+                .setLimit(100L)
+                .build();
+        try {
+            return client.v1().subscriptions().list(params).getData().stream()
+                    .map(Subscription::getId)
+                    .toList();
+        } catch (StripeException e) {
+            throw failure("list subscriptions of customer " + customerId, e);
         }
     }
 

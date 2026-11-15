@@ -153,6 +153,8 @@ pulseguard:
   login:
     max-attempts: ${PULSEGUARD_LOGIN_MAX_ATTEMPTS}
     max-attempts-per-ip: ${PULSEGUARD_LOGIN_MAX_ATTEMPTS_PER_IP}
+    # Sign-ups per client IP per window: registration says whether an address is taken.
+    max-registrations-per-ip: ${PULSEGUARD_LOGIN_MAX_REGISTRATIONS_PER_IP:10}
     window: ${PULSEGUARD_LOGIN_WINDOW}
   check:
     # Handshake only; the response is bounded per monitor by its own timeout_ms.

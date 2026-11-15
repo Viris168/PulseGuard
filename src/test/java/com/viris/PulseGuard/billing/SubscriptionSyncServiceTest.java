@@ -4,6 +4,7 @@ import com.viris.PulseGuard.billing.repository.DeletedStripeCustomerRepository;
 import com.viris.PulseGuard.auth.User;
 import com.viris.PulseGuard.auth.UserRepository;
 import com.viris.PulseGuard.billing.repository.SubscriptionRepository;
+import com.viris.PulseGuard.billing.stripe.StripeGateway;
 import com.viris.PulseGuard.billing.stripe.SubscriptionSnapshot;
 import com.viris.PulseGuard.common.exception.BillingSyncException;
 import com.viris.PulseGuard.enumeration.Plan;
@@ -50,6 +51,8 @@ class SubscriptionSyncServiceTest {
     private PlanChangeService planChangeService;
     @Mock
     private DeletedStripeCustomerRepository deletedCustomers;
+    @Mock
+    private StripeGateway gateway;
 
     private SubscriptionSyncService service;
 
@@ -59,7 +62,7 @@ class SubscriptionSyncServiceTest {
                 Map.of(Plan.PRO, "price_pro", Plan.BUSINESS, "price_business"),
                 URI.create("http://localhost:5173"), Duration.ofSeconds(5), Duration.ofSeconds(20), 0);
         service = new SubscriptionSyncService(userRepository, subscriptionRepository, planChangeService, properties,
-                deletedCustomers);
+                deletedCustomers, gateway);
         User user = User.builder().id(USER_ID).email("dara@example.com").plan(Plan.FREE).build();
         when(userRepository.lockByStripeCustomerId(CUSTOMER)).thenReturn(Optional.of(user));
         when(subscriptionRepository.findByUserId(USER_ID)).thenReturn(Optional.empty());
@@ -211,6 +214,47 @@ class SubscriptionSyncServiceTest {
 
         assertThatCode(() -> service.sync(cancelled)).doesNotThrowAnyException();
         verify(subscriptionRepository, never()).save(any());
+        verify(gateway, never()).cancelSubscription(any());
+    }
+
+    @Test
+    void aSubscriptionThatStartsAfterItsAccountWasDeletedIsCancelled() {
+        // A checkout left open in another tab and paid after the account was deleted.
+        when(userRepository.lockByStripeCustomerId("cus_gone")).thenReturn(Optional.empty());
+        when(deletedCustomers.existsById("cus_gone")).thenReturn(true);
+        SubscriptionSnapshot late = new SubscriptionSnapshot("sub_late", "cus_gone", "active", "price_pro", PERIOD_END, false);
+
+        service.sync(late);
+
+        verify(gateway).cancelSubscription("sub_late");
+        verify(subscriptionRepository, never()).save(any());
+    }
+
+    @Test
+    void anOlderReadArrivingLateDoesNotUndoANewerOne() {
+        // Two deliveries read the subscription: first "active", then "canceled". The newer read
+        // takes the lock first and stores the cancellation; the older one must not restore it.
+        Instant olderRead = Instant.parse("2026-10-01T12:00:00Z");
+        Subscription row = existingRow("sub_1", SubscriptionStatus.CANCELED, Plan.PRO);
+        row.setSnapshotAt(olderRead.plusSeconds(1));
+
+        service.sync(snapshot("active", "price_pro"), olderRead);
+
+        verify(subscriptionRepository, never()).save(any());
+        verifyNoInteractions(planChangeService);
+        assertThat(row.getStatus()).isEqualTo(SubscriptionStatus.CANCELED);
+    }
+
+    @Test
+    void aNewerReadIsAppliedAndRemembered() {
+        Instant newerRead = Instant.parse("2026-10-01T12:00:05Z");
+        Subscription row = existingRow("sub_1", SubscriptionStatus.ACTIVE, Plan.PRO);
+        row.setSnapshotAt(newerRead.minusSeconds(5));
+
+        service.sync(snapshot("canceled", "price_pro"), newerRead);
+
+        assertThat(savedRow().getSnapshotAt()).isEqualTo(newerRead);
+        verify(planChangeService).applyPlan(USER_ID, Plan.FREE);
     }
 
     @Test

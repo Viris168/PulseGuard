@@ -2,6 +2,8 @@ package com.viris.PulseGuard.billing.stripe;
 
 import com.viris.PulseGuard.common.exception.PaymentProviderException;
 
+import java.util.List;
+
 /**
  * Everything PulseGuard asks of the Stripe API. The only seam to the SDK, so billing logic is
  * tested against a mock and a provider change stays in one class. Webhook signature checks are
@@ -28,6 +30,12 @@ public interface StripeGateway {
 
     /** Cancels at once (not at period end): used when the account itself is deleted. */
     void cancelSubscription(String subscriptionId);
+
+    /**
+     * Every subscription of this customer that has not ended. Usually one, but two checkouts
+     * finished in different tabs make two, and account deletion must stop them all.
+     */
+    List<String> liveSubscriptionIds(String customerId);
 
     /** Keeps receipts and portal emails going to the address the account uses now. */
     void updateCustomerEmail(String customerId, String email);

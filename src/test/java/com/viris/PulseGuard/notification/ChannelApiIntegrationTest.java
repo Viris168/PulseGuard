@@ -393,6 +393,18 @@ class ChannelApiIntegrationTest {
     }
 
     @Test
+    void theConfirmationEmailQuotesTheOwnersNameNextToTheirAddress() throws Exception {
+        createId(alice, "EMAIL", "team@example.com");
+
+        org.mockito.ArgumentCaptor<SimpleMailMessage> mail = org.mockito.ArgumentCaptor.forClass(SimpleMailMessage.class);
+        verify(mailSender, org.mockito.Mockito.timeout(5000).atLeast(1)).send(mail.capture());
+        String text = mail.getAllValues().stream()
+                .filter(m -> "Confirm PulseGuard alerts to this address".equals(m.getSubject()))
+                .reduce((a, b) -> b).orElseThrow().getText();
+        assertThat(text).contains("A PulseGuard user, \"Test\" (alice@example.com), added this address");
+    }
+
+    @Test
     void anotherAddressGetsNoAlertsUntilItConfirms() throws Exception {
         long id = createId(alice, "EMAIL", "team@example.com");
         mockMvc.perform(get("/api/channels").header(HttpHeaders.AUTHORIZATION, alice))

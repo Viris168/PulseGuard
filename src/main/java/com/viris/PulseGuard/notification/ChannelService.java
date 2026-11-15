@@ -80,7 +80,9 @@ public class ChannelService {
 
     @Transactional
     public ChannelResponse createChannel(Long userId, ChannelRequest request) {
-        User user = requireUser(userId);
+        // Locked, so simultaneous creates count one after another and the channel limit holds.
+        User user = userRepository.lockById(userId)
+                .orElseThrow(() -> new IllegalStateException("Authenticated user " + userId + " no longer exists"));
         requireAllowedType(user.getPlan(), request.type());
 
         String target = normalize(request.type(), request.target());

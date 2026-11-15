@@ -30,4 +30,13 @@ public interface LoginRateLimiter {
 
     /** Called after the current password matched. */
     void resetForUser(Long userId);
+
+    /**
+     * Throttles sign-ups per client IP. Registration answers "already registered" for a taken
+     * address (the form needs to say so), so without a limit it would let anyone test a list of
+     * addresses for PulseGuard accounts as fast as they can send requests.
+     *
+     * @return true when this IP may register another account now.
+     */
+    boolean tryAcquireRegistration(String clientIp);
 }

@@ -39,8 +39,10 @@ public class AuthController {
     private final AccountDeletionService accountDeletionService;
 
     @PostMapping("/register")
-    public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(authService.register(request));
+    public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request,
+                                                 HttpServletRequest servletRequest) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(authService.register(request, servletRequest.getRemoteAddr()));
     }
 
     @PostMapping("/login")

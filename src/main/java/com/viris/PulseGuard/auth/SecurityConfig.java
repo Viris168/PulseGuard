@@ -26,6 +26,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.util.UrlPathHelper;
 
 @Configuration
 @EnableConfigurationProperties(JwtProperties.class)
@@ -42,8 +43,13 @@ public class SecurityConfig {
                 && !(auth instanceof ApiKeyAuthenticationToken));
     };
 
+    /** Decodes %-escapes and drops ;params, the way request mapping sees the path. */
+    private static final UrlPathHelper PATHS = new UrlPathHelper();
+
     static boolean isFrontendRequest(HttpServletRequest request) {
-        String path = request.getRequestURI().substring(request.getContextPath().length());
+        // Decoded, as Spring MVC routes it: on the raw URI, /%61pi/monitors would not start with
+        // /api/, pass as a frontend route, and still reach the API controller.
+        String path = PATHS.getPathWithinApplication(request);
         return HttpMethod.GET.matches(request.getMethod())
                 && !path.equals("/api") && !path.startsWith("/api/")
                 && !path.equals("/actuator") && !path.startsWith("/actuator/")

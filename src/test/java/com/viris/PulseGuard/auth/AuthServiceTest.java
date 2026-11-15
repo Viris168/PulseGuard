@@ -10,6 +10,7 @@ import com.viris.PulseGuard.auth.jwt.TokenType;
 import com.viris.PulseGuard.auth.security.CurrentPasswordCheck;
 import com.viris.PulseGuard.auth.security.InMemoryLoginRateLimiter;
 import com.viris.PulseGuard.auth.security.InMemoryTokenDenylist;
+import com.viris.PulseGuard.auth.security.LoginRateLimiter;
 import com.viris.PulseGuard.common.exception.IncorrectPasswordException;
 import com.viris.PulseGuard.common.exception.EmailAlreadyUsedException;
 import com.viris.PulseGuard.common.exception.InvalidCredentialsException;
@@ -94,7 +95,7 @@ class AuthServiceTest {
         when(users.existsByEmail("a@example.com")).thenReturn(false);
         when(users.save(any(User.class))).thenAnswer(i -> i.getArgument(0));
 
-        authService.register(new RegisterRequest("Viris", "a@example.com", "secret123"));
+        authService.register(new RegisterRequest("Viris", "a@example.com", "secret123"), "203.0.113.7");
 
         ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
         verify(users).save(saved.capture());
@@ -106,7 +107,7 @@ class AuthServiceTest {
         when(users.existsByEmail("a@example.com")).thenReturn(false);
         when(users.save(any(User.class))).thenAnswer(i -> i.getArgument(0));
 
-        authService.register(new RegisterRequest("Viris", "A@Example.com", "secret123"));
+        authService.register(new RegisterRequest("Viris", "A@Example.com", "secret123"), "203.0.113.7");
 
         ArgumentCaptor<NotificationChannel> channel = ArgumentCaptor.forClass(NotificationChannel.class);
         verify(channels).save(channel.capture());
@@ -119,7 +120,7 @@ class AuthServiceTest {
     void registerChecksExistingEmailInNormalizedForm() {
         when(users.existsByEmail("a@example.com")).thenReturn(true);
 
-        assertThatThrownBy(() -> authService.register(new RegisterRequest("Viris", "A@Example.com", "secret123")))
+        assertThatThrownBy(() -> authService.register(new RegisterRequest("Viris", "A@Example.com", "secret123"), "203.0.113.7"))
                 .isInstanceOf(EmailAlreadyUsedException.class);
         verify(users, never()).save(any());
         verify(channels, never()).save(any());
@@ -130,7 +131,7 @@ class AuthServiceTest {
         when(users.existsByEmail("a@example.com")).thenReturn(false);
         when(users.save(any(User.class))).thenAnswer(i -> i.getArgument(0));
 
-        AuthResponse response = authService.register(new RegisterRequest("Viris", "a@example.com", "secret123"));
+        AuthResponse response = authService.register(new RegisterRequest("Viris", "a@example.com", "secret123"), "203.0.113.7");
 
         assertThat(response.token()).isNotBlank();
         assertThat(response.refreshToken()).isNotBlank();
@@ -409,6 +410,21 @@ class AuthServiceTest {
         assertThatThrownBy(() -> authService.changePassword(session,
                 new ChangePasswordRequest("typo", "another-password")))
                 .isInstanceOf(IncorrectPasswordException.class);
+    }
+
+    @Test
+    void aThrottledSignUpIsRefusedBeforeTheEmailIsLookedUp() {
+        LoginRateLimiter noMoreSignUps = org.mockito.Mockito.mock(LoginRateLimiter.class);
+        authService = new AuthService(users, passwordEncoder, null, jwtService,
+                new CurrentPasswordCheck(passwordEncoder, noMoreSignUps), denylist, noMoreSignUps, channels,
+                org.mockito.Mockito.mock(com.viris.PulseGuard.auth.account.EmailVerificationService.class),
+                org.mockito.Mockito.mock(com.viris.PulseGuard.apikey.ApiKeyRepository.class),
+                org.mockito.Mockito.mock(com.viris.PulseGuard.auth.account.EmailTokenRepository.class));
+
+        // Taken or not, the answer is the same 429: no account-exists signal past the limit.
+        assertThatThrownBy(() -> authService.register(new RegisterRequest("Viris", "a@example.com", "secret123"), "203.0.113.7"))
+                .isInstanceOf(TooManyAttemptsException.class);
+        verify(users, never()).existsByEmail(any());
     }
 
     @Test

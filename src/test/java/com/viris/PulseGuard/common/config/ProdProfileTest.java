@@ -71,6 +71,11 @@ class ProdProfileTest {
         @Override
         public void resetForUser(Long userId) {
         }
+
+        @Override
+        public boolean tryAcquireRegistration(String clientIp) {
+            return true;
+        }
     }
 
     @TestConfiguration

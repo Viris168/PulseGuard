@@ -76,7 +76,12 @@ public class SchedulerService {
             return;
         }
         try {
-            Date nextFire = scheduler.rescheduleJob(triggerKey(monitor.getId()), buildTrigger(monitor));
+            // The next check stays when it was due. A fresh trigger would fire within the jitter,
+            // so flipping between two intervals would force checks faster than either allows.
+            Trigger current = scheduler.getTrigger(triggerKey(monitor.getId()));
+            Date keep = current == null ? null : current.getNextFireTime();
+            Date nextFire = scheduler.rescheduleJob(triggerKey(monitor.getId()),
+                    keep == null ? buildTrigger(monitor) : buildTrigger(monitor, keep));
             if (nextFire == null) {
                 // No old trigger to replace; create the job and trigger from scratch.
                 schedule(monitor);
@@ -137,10 +142,14 @@ public class SchedulerService {
     }
 
     private Trigger buildTrigger(Monitor monitor) {
+        return buildTrigger(monitor, firstFireTime(monitor)); // first run: random delay to spread load
+    }
+
+    private Trigger buildTrigger(Monitor monitor, Date startAt) {
         return TriggerBuilder.newTrigger()
                 .withIdentity(triggerKey(monitor.getId()))      // the name tag
                 .forJob(jobKey(monitor.getId()))                // which job this alarm runs
-                .startAt(firstFireTime(monitor)) // first run: random delay to spread load
+                .startAt(startAt)
                 .withSchedule(SimpleScheduleBuilder.simpleSchedule()
                         .withIntervalInSeconds(monitor.getIntervalSeconds()) // every N seconds
                         .repeatForever()                                     // never stop

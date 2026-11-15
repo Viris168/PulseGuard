@@ -12,7 +12,6 @@ import com.viris.PulseGuard.billing.repository.SubscriptionRepository;
 import com.viris.PulseGuard.billing.stripe.StripeGateway;
 import com.viris.PulseGuard.common.exception.AccountDeletionException;
 import com.viris.PulseGuard.common.exception.RevocationUnavailableException;
-import com.viris.PulseGuard.enumeration.SubscriptionStatus;
 import com.viris.PulseGuard.monitor.Monitor;
 import com.viris.PulseGuard.monitor.MonitorRepository;
 import com.viris.PulseGuard.scheduling.SchedulerService;
@@ -25,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 /**
@@ -75,18 +75,24 @@ public class AccountDeletionService {
         passwordCheck.verify(user, currentPassword);
 
         // 1. Stop billing. Immediately, not at period end: there is no account left to serve.
+        //    Every live subscription the customer has, not just the one stored here: two
+        //    checkouts finished in different tabs leave a second one that would bill forever.
+        Set<String> live = new LinkedHashSet<>();
         subscriptions.findByUserId(userId)
-                .filter(sub -> sub.getStripeSubscriptionId() != null && sub.getStatus() != SubscriptionStatus.CANCELED
-                        && sub.getStatus() != SubscriptionStatus.INCOMPLETE_EXPIRED)
+                .filter(sub -> sub.getStripeSubscriptionId() != null && !sub.getStatus().hasEnded())
                 .map(Subscription::getStripeSubscriptionId)
-                .ifPresent(subscriptionId -> {
-                    try {
-                        stripe.cancelSubscription(subscriptionId);
-                    } catch (RuntimeException e) {
-                        log.error("Account deletion stopped for user {}: subscription cancel failed", userId);
-                        throw new AccountDeletionException();
-                    }
-                });
+                .ifPresent(live::add);
+        try {
+            if (user.getStripeCustomerId() != null) {
+                live.addAll(stripe.liveSubscriptionIds(user.getStripeCustomerId()));
+            }
+            for (String subscriptionId : live) {
+                stripe.cancelSubscription(subscriptionId);
+            }
+        } catch (RuntimeException e) {
+            log.error("Account deletion stopped for user {}: subscription cancel failed", userId);
+            throw new AccountDeletionException();
+        }
 
         // 2. What lives outside these tables: check jobs in Quartz (same transaction), the
         //    cached public status page (evicted after commit), and live sessions (Redis).
@@ -104,7 +110,9 @@ public class AccountDeletionService {
         }
 
         // Late Stripe events for this customer (the cancellation above sends one) are then
-        // acknowledged instead of failing the webhook for days; see SubscriptionSyncService.
+        // acknowledged instead of failing the webhook for days, and a subscription that still
+        // starts afterwards (a checkout left open in another tab) is cancelled on arrival; see
+        // SubscriptionSyncService.
         if (user.getStripeCustomerId() != null) {
             deletedCustomers.save(new DeletedStripeCustomer(user.getStripeCustomerId()));
         }

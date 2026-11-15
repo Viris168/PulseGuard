@@ -75,7 +75,9 @@ public class MonitorService {
 
     @Transactional
     public MonitorResponse createMonitor(Long userId, MonitorRequest request) {
-        User user = requireUser(userId);
+        // Locked, so simultaneous creates count one after another and the plan limit holds.
+        User user = userRepository.lockById(userId)
+                .orElseThrow(() -> new IllegalStateException("Authenticated user " + userId + " no longer exists"));
         Plan plan = user.getPlan();
         boolean heartbeat = request.typeOrDefault() == MonitorType.HEARTBEAT;
 
@@ -228,6 +230,11 @@ public class MonitorService {
 
     private MonitorResponse setActive(Long userId, Long monitorId, boolean active) {
         Monitor monitor = requireOwnedMonitor(userId, monitorId);
+        if (monitor.isActive() == active) {
+            // Already so. Resuming an active monitor used to reschedule it, which fires a check
+            // within the jitter: repeated, that ran checks far more often than the plan allows.
+            return toResponse(monitor);
+        }
         monitor.setActive(active);
         if (monitor.isHeartbeat()) {
             // Nothing to (un)schedule. Resuming gives the job a full period from now, instead of
@@ -366,12 +373,6 @@ public class MonitorService {
     private Monitor requireOwnedMonitor(Long userId, Long monitorId) {
         return monitorRepository.findByIdAndUserId(monitorId, userId)
                 .orElseThrow(() -> new MonitorNotFoundException(monitorId));
-    }
-
-    private User requireUser(Long userId) {
-        return userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalStateException(
-                        "Authenticated user " + userId + " no longer exists"));
     }
 
     private void requireAllowedInterval(Plan plan, int intervalSeconds) {

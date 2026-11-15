@@ -146,6 +146,43 @@ class MonitorApiIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
     }
 
+    @Test
+    void simultaneousCreatesCannotGoPastThePlanLimit() throws Exception {
+        User alice = users.findByEmail("alice@example.com").orElseThrow();
+        alice.setPlan(Plan.FREE); // 3 monitors, every 5 minutes at most
+        users.save(alice);
+        String body = """
+                {"name":"API health","url":"https://example.com/health","method":"GET",
+                 "expectedStatus":200,"intervalSeconds":300,"timeoutMs":5000}
+                """;
+        java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(10);
+        try {
+            java.util.List<java.util.concurrent.Future<Integer>> statuses = new java.util.ArrayList<>();
+            for (int i = 0; i < 10; i++) {
+                statuses.add(pool.submit(() -> {
+                    start.await();
+                    return mockMvc.perform(post("/api/monitors")
+                                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + aliceToken)
+                                    .contentType(MediaType.APPLICATION_JSON).content(body))
+                            .andReturn().getResponse().getStatus();
+                }));
+            }
+            start.countDown();
+            long created = 0;
+            for (var status : statuses) {
+                if (status.get(30, java.util.concurrent.TimeUnit.SECONDS) == 201) {
+                    created++;
+                }
+            }
+
+            assertThat(created).isEqualTo(3);
+            assertThat(monitors.findAllByUserId(alice.getId())).hasSize(3);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
     private static long idOf(String json, ObjectMapper mapper) {
         JsonNode node = mapper.readTree(json);
         return node.get("id").asLong();
