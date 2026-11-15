@@ -30,6 +30,12 @@
 		<java.version>21</java.version>
 		<!-- 2.0.x is the Spring AI line built for Spring Boot 4. -->
 		<spring-ai.version>2.0.1</spring-ai.version>
+		<!-- Security patches ahead of Boot 4.1.1's own versions; drop each once Boot catches up.
+		     Jackson: JSON-parsing DoS (GHSA-p6pp-m3f8-5c89, GHSA-7hhh-6rmp-j9qf and others), and
+		     login/register parse untrusted JSON. Tomcat: GHSA-9xv2-5v5q-p794 and three more. -->
+		<jackson-bom.version>3.1.7</jackson-bom.version>
+		<jackson-2-bom.version>2.21.7</jackson-2-bom.version>
+		<tomcat.version>11.0.25</tomcat.version>
 	</properties>
 	<dependencyManagement>
 		<dependencies>
@@ -39,6 +45,13 @@
 				<version>${spring-ai.version}</version>
 				<type>pom</type>
 				<scope>import</scope>
+			</dependency>
+			<!-- Pulled in by the Google AI client. 33.7.2 fixes GHSA-xxph-c9ww-hj94 (a Java
+			     deserialization DoS); drop this once that client ships it. -->
+			<dependency>
+				<groupId>com.google.guava</groupId>
+				<artifactId>guava</artifactId>
+				<version>33.7.2-android</version>
 			</dependency>
 		</dependencies>
 	</dependencyManagement>

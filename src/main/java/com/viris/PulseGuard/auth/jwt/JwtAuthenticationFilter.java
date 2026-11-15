@@ -63,7 +63,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 return;
             }
             if (denylist.isRevoked(parsed.jti())
-                    || denylist.isRevokedForUser(parsed.userId(), parsed.issuedAt())) {
+                    || denylist.isRevokedForUser(parsed.userId(), parsed.sessionStartedAt())) {
                 log.debug("Rejected revoked token for user {}", parsed.userId());
                 return;
             }

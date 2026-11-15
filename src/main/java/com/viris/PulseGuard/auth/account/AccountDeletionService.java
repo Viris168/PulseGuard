@@ -3,6 +3,7 @@ package com.viris.PulseGuard.auth.account;
 import com.viris.PulseGuard.auth.User;
 import com.viris.PulseGuard.auth.UserRepository;
 import com.viris.PulseGuard.auth.jwt.JwtService;
+import com.viris.PulseGuard.auth.security.CurrentPasswordCheck;
 import com.viris.PulseGuard.auth.security.TokenDenylist;
 import com.viris.PulseGuard.billing.DeletedStripeCustomer;
 import com.viris.PulseGuard.billing.Subscription;
@@ -10,7 +11,7 @@ import com.viris.PulseGuard.billing.repository.DeletedStripeCustomerRepository;
 import com.viris.PulseGuard.billing.repository.SubscriptionRepository;
 import com.viris.PulseGuard.billing.stripe.StripeGateway;
 import com.viris.PulseGuard.common.exception.AccountDeletionException;
-import com.viris.PulseGuard.common.exception.IncorrectPasswordException;
+import com.viris.PulseGuard.common.exception.RevocationUnavailableException;
 import com.viris.PulseGuard.enumeration.SubscriptionStatus;
 import com.viris.PulseGuard.monitor.Monitor;
 import com.viris.PulseGuard.monitor.MonitorRepository;
@@ -20,7 +21,6 @@ import com.viris.PulseGuard.statuspage.StatusPageRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,7 +39,7 @@ public class AccountDeletionService {
     private static final Logger log = LoggerFactory.getLogger(AccountDeletionService.class);
 
     private final UserRepository users;
-    private final PasswordEncoder passwordEncoder;
+    private final CurrentPasswordCheck passwordCheck;
     private final SubscriptionRepository subscriptions;
     private final StripeGateway stripe;
     private final MonitorRepository monitors;
@@ -50,14 +50,14 @@ public class AccountDeletionService {
     private final ApplicationEventPublisher events;
     private final DeletedStripeCustomerRepository deletedCustomers;
 
-    public AccountDeletionService(UserRepository users, PasswordEncoder passwordEncoder,
+    public AccountDeletionService(UserRepository users, CurrentPasswordCheck passwordCheck,
                                   SubscriptionRepository subscriptions, StripeGateway stripe,
                                   MonitorRepository monitors, SchedulerService schedulerService,
                                   StatusPageRepository statusPages, TokenDenylist denylist,
                                   JwtService jwtService, ApplicationEventPublisher events,
                                   DeletedStripeCustomerRepository deletedCustomers) {
         this.users = users;
-        this.passwordEncoder = passwordEncoder;
+        this.passwordCheck = passwordCheck;
         this.subscriptions = subscriptions;
         this.stripe = stripe;
         this.monitors = monitors;
@@ -72,9 +72,7 @@ public class AccountDeletionService {
     @Transactional
     public void deleteAccount(Long userId, String currentPassword) {
         User user = users.findById(userId).orElseThrow();
-        if (!passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
-            throw new IncorrectPasswordException();
-        }
+        passwordCheck.verify(user, currentPassword);
 
         // 1. Stop billing. Immediately, not at period end: there is no account left to serve.
         subscriptions.findByUserId(userId)
@@ -97,7 +95,13 @@ public class AccountDeletionService {
         }
         statusPages.findByUserId(userId).ifPresent(page ->
                 events.publishEvent(new StatusPageChangedEvent(Set.of(page.getSlug()))));
-        denylist.revokeAllForUser(userId, Instant.now(), jwtService.sessionRetention());
+        try {
+            denylist.revokeAllForUser(userId, Instant.now(), jwtService.sessionRetention());
+        } catch (RevocationUnavailableException e) {
+            // Not worth undoing a deletion whose subscription is already cancelled: tokens of a
+            // deleted user are refused anyway, since every request and refresh loads the user.
+            log.warn("Deleted user {} without a revocation cut-off: store unavailable", userId);
+        }
 
         // Late Stripe events for this customer (the cancellation above sends one) are then
         // acknowledged instead of failing the webhook for days; see SubscriptionSyncService.

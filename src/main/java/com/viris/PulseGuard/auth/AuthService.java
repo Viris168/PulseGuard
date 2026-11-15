@@ -1,6 +1,7 @@
 package com.viris.PulseGuard.auth;
 
 import com.viris.PulseGuard.apikey.ApiKeyRepository;
+import com.viris.PulseGuard.auth.account.EmailTokenRepository;
 import com.viris.PulseGuard.auth.account.EmailVerificationService;
 import com.viris.PulseGuard.auth.dto.AuthResponse;
 import com.viris.PulseGuard.auth.dto.UpdateProfileRequest;
@@ -12,14 +13,15 @@ import com.viris.PulseGuard.auth.jwt.JwtService;
 import com.viris.PulseGuard.auth.jwt.ParsedToken;
 import com.viris.PulseGuard.auth.jwt.TokenType;
 import com.viris.PulseGuard.auth.jwt.UserMapper;
+import com.viris.PulseGuard.auth.security.CurrentPasswordCheck;
 import com.viris.PulseGuard.auth.security.LoginRateLimiter;
 import com.viris.PulseGuard.auth.security.TokenDenylist;
 import com.viris.PulseGuard.common.exception.EmailAlreadyUsedException;
-import com.viris.PulseGuard.common.exception.IncorrectPasswordException;
 import com.viris.PulseGuard.common.exception.InvalidCredentialsException;
 import com.viris.PulseGuard.common.exception.PasswordUnchangedException;
 import com.viris.PulseGuard.common.exception.TooManyAttemptsException;
 import com.viris.PulseGuard.enumeration.ChannelType;
+import com.viris.PulseGuard.enumeration.EmailTokenPurpose;
 import com.viris.PulseGuard.notification.NotificationChannel;
 import com.viris.PulseGuard.notification.repository.NotificationChannelRepository;
 import io.jsonwebtoken.JwtException;
@@ -43,11 +45,13 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtService jwtService;
+    private final CurrentPasswordCheck currentPassword;
     private final TokenDenylist denylist;
     private final LoginRateLimiter rateLimiter;
     private final NotificationChannelRepository channels;
     private final EmailVerificationService emailVerification;
     private final ApiKeyRepository apiKeys;
+    private final EmailTokenRepository emailTokens;
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
@@ -107,7 +111,7 @@ public class AuthService {
 
         if (parsed.type() != TokenType.REFRESH
                 || denylist.isRevoked(parsed.jti())
-                || denylist.isRevokedForUser(parsed.userId(), parsed.issuedAt())) {
+                || denylist.isRevokedForUser(parsed.userId(), parsed.sessionStartedAt())) {
             throw new InvalidCredentialsException();
         }
 
@@ -118,7 +122,9 @@ public class AuthService {
 
         denylist.revoke(parsed.jti(), parsed.expiresAt());
         revokeCompanionAccessToken(accessToken, parsed.userId());
-        return issueTokens(UserPrincipal.from(user), UserMapper.from(user));
+        // The new pair continues this session, so it keeps its start: refreshing in a loop never
+        // produces a token newer than a revoke-all cut-off.
+        return issueTokens(UserPrincipal.from(user), UserMapper.from(user), parsed.sessionStartedAt());
     }
 
     /**
@@ -169,10 +175,9 @@ public class AuthService {
     public AuthResponse changePassword(UserPrincipal principal, ChangePasswordRequest request) {
         User user = users.findById(principal.getUserId()).orElseThrow(InvalidCredentialsException::new);
 
-        if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
-            // Not InvalidCredentialsException: its 401 reads as "session expired" in the app.
-            throw new IncorrectPasswordException();
-        }
+        // Throws IncorrectPasswordException, not InvalidCredentialsException: the latter's 401
+        // reads as "session expired" in the app.
+        currentPassword.verify(user, request.currentPassword());
         if (passwordEncoder.matches(request.newPassword(), user.getPasswordHash())) {
             throw new PasswordUnchangedException();
         }
@@ -190,6 +195,8 @@ public class AuthService {
         denylist.revokeAllForUser(user.getId(), Instant.now(), jwtService.sessionRetention());
         // Keys are credentials too: if the password leaked, so may have anything made with it.
         int keys = apiKeys.deleteAllForUser(user.getId());
+        // A pending email change may have been started by whoever knew the old password.
+        emailTokens.deleteAllForUser(user.getId(), EmailTokenPurpose.CHANGE);
         log.info("Password changed for user {}; all sessions and {} API key(s) revoked", user.getId(), keys);
 
         return issueTokens(UserPrincipal.from(user), UserMapper.from(user));
@@ -231,10 +238,15 @@ public class AuthService {
         }
     }
 
+    /** A pair for a new session: a sign-in, a registration, or a password change. */
     private AuthResponse issueTokens(UserPrincipal principal, UserResponse user) {
+        return issueTokens(principal, user, Instant.now());
+    }
+
+    private AuthResponse issueTokens(UserPrincipal principal, UserResponse user, Instant sessionStartedAt) {
         return AuthResponse.of(
-                jwtService.generateAccessToken(principal),
-                jwtService.generateRefreshToken(principal),
+                jwtService.generateAccessToken(principal, sessionStartedAt),
+                jwtService.generateRefreshToken(principal, sessionStartedAt),
                 jwtService.accessTokenSeconds(),
                 user);
     }

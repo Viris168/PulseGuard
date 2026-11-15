@@ -100,6 +100,8 @@ class IncidentSummaryApiIntegrationTest {
     MonitorRepository monitors;
     @Autowired
     IncidentRepository incidents;
+    @Autowired
+    AiAccessRepository aiAccess;
 
     private String alice;
     private String bob;
@@ -112,7 +114,12 @@ class IncidentSummaryApiIntegrationTest {
         MODEL_FAILS.set(false);
         alice = "Bearer " + register("alice@example.com");
         bob = "Bearer " + register("bob@example.com");
-        aliceIncident = resolvedIncident(monitor(users.findByEmail("alice@example.com").orElseThrow()));
+        User owner = users.findByEmail("alice@example.com").orElseThrow();
+        aliceIncident = resolvedIncident(monitor(owner));
+        // Alice shares every monitor with Ask AI, which is what lets a summary be AI-written.
+        AiAccess consent = new AiAccess(owner.getId());
+        consent.setEnabled(true);
+        aiAccess.save(consent);
     }
 
     @Test
@@ -145,6 +152,16 @@ class IncidentSummaryApiIntegrationTest {
 
         assertThat(MODEL_CALLS).hasValue(0);
         assertThat(incidents.findById(aliceIncident.getId()).orElseThrow().getAiSummary()).isNull();
+    }
+
+    @Test
+    void withoutAskAiConsentNothingIsSentToTheProvider() throws Exception {
+        aiAccess.deleteAll();
+
+        mockMvc.perform(summary(aliceIncident.getId()).header(HttpHeaders.AUTHORIZATION, alice))
+                .andExpect(status().isNoContent());
+
+        assertThat(MODEL_CALLS).hasValue(0);
     }
 
     @Test

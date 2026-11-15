@@ -70,7 +70,8 @@ public class CheckExecutor {
                 .plus(properties.graceTimeout());
 
         // Rule 6: re-resolve every time. DNS answers change, so a host that was public when
-        // the monitor was saved can point inside the network by now.
+        // the monitor was saved can point inside the network by now. This early check gives a
+        // clean failure; the client's resolver repeats it for the address actually dialled.
         try {
             urlValidator.validate(monitor.getUrl());
         } catch (InvalidMonitorUrlException e) {
@@ -156,6 +157,10 @@ public class CheckExecutor {
      */
     private ErrorType classify(Throwable error) {
         for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            // Refused by the client's resolver (PublicAddressResolverGroup) at connect time.
+            if (cause instanceof InvalidMonitorUrlException blocked) {
+                return blocked.getErrorType();
+            }
             if (cause instanceof UnknownHostException) {
                 return ErrorType.DNS;
             }

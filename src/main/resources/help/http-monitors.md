@@ -1,7 +1,7 @@
 ---
 title: HTTP monitors
 summary: Every setting of an HTTP monitor: URL, method, headers, body, expected status codes, interval and timeout.
-describes: monitor/dto/MonitorRequestValidator.java, monitor/MonitorHeader.java, check/CheckExecutor.java, common/net/SafeUrlValidator.java, frontend/src/pages/MonitorFormPage.tsx
+describes: monitor/dto/MonitorRequestValidator.java, monitor/MonitorHeader.java, monitor/MonitorService.java, check/CheckExecutor.java, common/net/SafeUrlValidator.java, frontend/src/pages/MonitorFormPage.tsx
 ---
 
 An HTTP monitor calls a URL on a schedule and decides from the answer whether it's up. Use it
@@ -31,7 +31,9 @@ endpoint that needs a login. Header values can be up to 2,000 characters, on one
 
 **Secret headers are write-only.** `Authorization`, `Cookie`, and any header whose name contains
 auth, token, key, secret, password, session or signature are stored but never shown again, not
-even to you. To change one, type the new value.
+even to you. To change one, type the new value. If you change the URL to a different host, port
+or scheme (`http` vs `https`), type secret values again too: PulseGuard never sends a saved
+secret, or a saved request body, to a server it wasn't entered for.
 
 Some headers are set by PulseGuard and can't be changed: `Host`, `Content-Length`, `Connection`,
 `User-Agent` and similar. Every check identifies itself as

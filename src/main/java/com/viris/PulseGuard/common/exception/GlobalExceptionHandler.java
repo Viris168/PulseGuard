@@ -141,6 +141,12 @@ public class GlobalExceptionHandler {
                 .body(ApiError.of(HttpStatus.BAD_REQUEST.value(), ex.getMessage()));
     }
 
+    @ExceptionHandler(RevocationUnavailableException.class)
+    public ResponseEntity<ApiError> handleRevocationUnavailable(RevocationUnavailableException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(ApiError.of(HttpStatus.SERVICE_UNAVAILABLE.value(), ex.getMessage()));
+    }
+
     @ExceptionHandler(AccountDeletionException.class)
     public ResponseEntity<ApiError> handleAccountDeletion(AccountDeletionException ex) {
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)

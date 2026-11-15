@@ -5,6 +5,7 @@ import com.viris.PulseGuard.auth.User;
 import com.viris.PulseGuard.auth.UserRepository;
 import com.viris.PulseGuard.check.CheckRepository;
 import com.viris.PulseGuard.common.net.SafeUrlValidator;
+import com.viris.PulseGuard.common.net.TestUrlValidators;
 import com.viris.PulseGuard.enumeration.IncidentStatus;
 import com.viris.PulseGuard.enumeration.MonitorState;
 import com.viris.PulseGuard.monitor.Monitor;
@@ -24,7 +25,6 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.data.domain.PageRequest;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.net.InetAddress;
 import java.time.Instant;
 import java.util.List;
 
@@ -50,7 +50,7 @@ class IncidentLifecycleIntegrationTest {
         @Bean
         @Primary
         SafeUrlValidator permissiveUrlValidator() {
-            return new SafeUrlValidator(host -> new InetAddress[]{InetAddress.getByName("93.184.216.34")});
+            return TestUrlValidators.allowingLoopback();
         }
     }
 

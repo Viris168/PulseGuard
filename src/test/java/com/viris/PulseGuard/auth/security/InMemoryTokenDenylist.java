@@ -2,7 +2,6 @@ package com.viris.PulseGuard.auth.security;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -26,13 +25,13 @@ public class InMemoryTokenDenylist implements TokenDenylist {
     }
 
     @Override
-    public void revokeAllForUser(Long userId, Instant issuedBefore, Duration retention) {
-        userCutoffs.put(userId, issuedBefore.truncatedTo(ChronoUnit.SECONDS).getEpochSecond());
+    public void revokeAllForUser(Long userId, Instant cutoff, Duration retention) {
+        userCutoffs.put(userId, cutoff.toEpochMilli());
     }
 
     @Override
-    public boolean isRevokedForUser(Long userId, Instant tokenIssuedAt) {
+    public boolean isRevokedForUser(Long userId, Instant sessionStartedAt) {
         Long cutoff = userCutoffs.get(userId);
-        return cutoff != null && tokenIssuedAt.getEpochSecond() < cutoff;
+        return cutoff != null && sessionStartedAt.toEpochMilli() < cutoff;
     }
 }

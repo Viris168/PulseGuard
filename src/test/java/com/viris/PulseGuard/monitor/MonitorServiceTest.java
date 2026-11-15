@@ -19,6 +19,8 @@ import com.viris.PulseGuard.scheduling.SchedulerService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -372,5 +374,20 @@ class MonitorServiceTest {
                 .isInstanceOf(MonitorNotFoundException.class);
         // The unscoped checks query must never run for someone else's monitor (IDOR).
         verify(checkRepository, never()).findByMonitorIdOrderByCheckedAtDesc(any(), any());
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "https://api.example.com/a, https://api.example.com/b, true",
+            "https://api.example.com/a, https://API.EXAMPLE.COM/a, true",
+            "https://api.example.com/a, https://api.example.com:443/a, true",
+            "http://api.example.com/a,  http://api.example.com:80/a, true",
+            "https://api.example.com/a, https://evil.example.net/a, false",
+            "https://api.example.com/a, http://api.example.com/a, false",
+            "https://api.example.com/a, https://api.example.com:8443/a, false",
+            "https://api.example.com/a, https://api.example.com.evil.net/a, false"
+    })
+    void sameOriginComparesSchemeHostAndPortOnly(String saved, String requested, boolean same) {
+        assertThat(MonitorService.sameOrigin(saved, requested)).isEqualTo(same);
     }
 }

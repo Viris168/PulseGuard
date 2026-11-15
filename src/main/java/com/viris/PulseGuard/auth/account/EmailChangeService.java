@@ -3,8 +3,8 @@ package com.viris.PulseGuard.auth.account;
 import com.viris.PulseGuard.auth.User;
 import com.viris.PulseGuard.auth.UserRepository;
 import com.viris.PulseGuard.auth.jwt.UserMapper;
+import com.viris.PulseGuard.auth.security.CurrentPasswordCheck;
 import com.viris.PulseGuard.common.exception.EmailAlreadyUsedException;
-import com.viris.PulseGuard.common.exception.IncorrectPasswordException;
 import com.viris.PulseGuard.common.exception.InvalidEmailTokenException;
 import com.viris.PulseGuard.common.exception.InvalidMonitorException;
 import com.viris.PulseGuard.common.exception.TooManyAttemptsException;
@@ -16,7 +16,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,18 +34,18 @@ public class EmailChangeService {
     private final UserRepository users;
     private final EmailTokenRepository tokens;
     private final NotificationChannelRepository channels;
-    private final PasswordEncoder passwordEncoder;
+    private final CurrentPasswordCheck passwordCheck;
     private final EmailSendThrottle throttle;
     private final AccountEmailProperties properties;
     private final ApplicationEventPublisher events;
 
     public EmailChangeService(UserRepository users, EmailTokenRepository tokens, NotificationChannelRepository channels,
-                              PasswordEncoder passwordEncoder, EmailSendThrottle throttle,
+                              CurrentPasswordCheck passwordCheck, EmailSendThrottle throttle,
                               AccountEmailProperties properties, ApplicationEventPublisher events) {
         this.users = users;
         this.tokens = tokens;
         this.channels = channels;
-        this.passwordEncoder = passwordEncoder;
+        this.passwordCheck = passwordCheck;
         this.throttle = throttle;
         this.properties = properties;
         this.events = events;
@@ -55,9 +54,7 @@ public class EmailChangeService {
     @Transactional
     public void requestChange(Long userId, String rawNewEmail, String currentPassword, String clientIp) {
         User user = users.findById(userId).orElseThrow();
-        if (!passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
-            throw new IncorrectPasswordException();
-        }
+        passwordCheck.verify(user, currentPassword);
         String newEmail = UserMapper.normalizeEmail(rawNewEmail);
         if (newEmail.equals(user.getEmail())) {
             throw new InvalidMonitorException("newEmail", "That's already your email");

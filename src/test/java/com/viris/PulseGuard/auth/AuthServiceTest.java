@@ -7,8 +7,10 @@ import com.viris.PulseGuard.auth.dto.RegisterRequest;
 import com.viris.PulseGuard.auth.jwt.JwtProperties;
 import com.viris.PulseGuard.auth.jwt.JwtService;
 import com.viris.PulseGuard.auth.jwt.TokenType;
+import com.viris.PulseGuard.auth.security.CurrentPasswordCheck;
 import com.viris.PulseGuard.auth.security.InMemoryLoginRateLimiter;
 import com.viris.PulseGuard.auth.security.InMemoryTokenDenylist;
+import com.viris.PulseGuard.common.exception.IncorrectPasswordException;
 import com.viris.PulseGuard.common.exception.EmailAlreadyUsedException;
 import com.viris.PulseGuard.common.exception.InvalidCredentialsException;
 import com.viris.PulseGuard.common.exception.PasswordUnchangedException;
@@ -68,10 +70,12 @@ class AuthServiceTest {
         DaoAuthenticationProvider provider = new DaoAuthenticationProvider(new AppUserDetailsService(users));
         provider.setPasswordEncoder(passwordEncoder);
 
+        InMemoryLoginRateLimiter rateLimiter = new InMemoryLoginRateLimiter(5, 20);
         authService = new AuthService(users, passwordEncoder, new ProviderManager(provider),
-                jwtService, denylist, new InMemoryLoginRateLimiter(5, 20), channels,
+                jwtService, new CurrentPasswordCheck(passwordEncoder, rateLimiter), denylist, rateLimiter, channels,
                 org.mockito.Mockito.mock(com.viris.PulseGuard.auth.account.EmailVerificationService.class),
-                org.mockito.Mockito.mock(com.viris.PulseGuard.apikey.ApiKeyRepository.class));
+                org.mockito.Mockito.mock(com.viris.PulseGuard.apikey.ApiKeyRepository.class),
+                org.mockito.Mockito.mock(com.viris.PulseGuard.auth.account.EmailTokenRepository.class));
     }
 
     private User storedUser() {
@@ -362,13 +366,49 @@ class AuthServiceTest {
         when(users.findById(1L)).thenReturn(Optional.of(stored));
         when(users.save(any(User.class))).thenAnswer(i -> i.getArgument(0));
 
-        Thread.sleep(1100); // iat has second precision; make the cut-off strictly later.
+        Thread.sleep(5); // the cut-off has millisecond precision; make it strictly later.
         authService.changePassword(UserPrincipal.from(stored),
                 new ChangePasswordRequest("secret123", "brand-new-password"));
 
-        assertThat(denylist.isRevokedForUser(1L, jwtService.parse(oldRefreshToken).issuedAt())).isTrue();
+        assertThat(denylist.isRevokedForUser(1L, jwtService.parse(oldRefreshToken).sessionStartedAt())).isTrue();
         assertThatThrownBy(() -> authService.refresh(oldRefreshToken, null))
                 .isInstanceOf(InvalidCredentialsException.class);
+    }
+
+    @Test
+    void theCurrentPasswordCannotBeGuessedFromAStolenSession() {
+        User stored = storedUser();
+        when(users.findById(1L)).thenReturn(Optional.of(stored));
+        UserPrincipal session = UserPrincipal.from(stored);
+
+        for (int i = 0; i < 5; i++) {
+            assertThatThrownBy(() -> authService.changePassword(session,
+                    new ChangePasswordRequest("guess", "brand-new-password")))
+                    .isInstanceOf(IncorrectPasswordException.class);
+        }
+        // The sixth try is refused before the password is even compared, right or wrong.
+        assertThatThrownBy(() -> authService.changePassword(session,
+                new ChangePasswordRequest("secret123", "brand-new-password")))
+                .isInstanceOf(TooManyAttemptsException.class);
+    }
+
+    @Test
+    void aCorrectCurrentPasswordClearsEarlierTypos() {
+        User stored = storedUser();
+        when(users.findById(1L)).thenReturn(Optional.of(stored));
+        when(users.save(any(User.class))).thenAnswer(i -> i.getArgument(0));
+        UserPrincipal session = UserPrincipal.from(stored);
+
+        for (int i = 0; i < 4; i++) {
+            assertThatThrownBy(() -> authService.changePassword(session,
+                    new ChangePasswordRequest("typo", "brand-new-password")))
+                    .isInstanceOf(IncorrectPasswordException.class);
+        }
+        authService.changePassword(session, new ChangePasswordRequest("secret123", "brand-new-password"));
+
+        assertThatThrownBy(() -> authService.changePassword(session,
+                new ChangePasswordRequest("typo", "another-password")))
+                .isInstanceOf(IncorrectPasswordException.class);
     }
 
     @Test
@@ -382,7 +422,27 @@ class AuthServiceTest {
 
         var issued = jwtService.parse(response.token());
         assertThat(issued.userId()).isEqualTo(1L);
-        assertThat(denylist.isRevokedForUser(1L, issued.issuedAt())).isFalse();
+        assertThat(denylist.isRevokedForUser(1L, issued.sessionStartedAt())).isFalse();
+    }
+
+    @Test
+    void aRefreshKeepsTheSessionStartSoAPasswordChangeEndsTheWholeChain() throws Exception {
+        User stored = storedUser();
+        when(users.findById(1L)).thenReturn(Optional.of(stored));
+        when(users.save(any(User.class))).thenAnswer(i -> i.getArgument(0));
+        String stolen = jwtService.generateRefreshToken(UserPrincipal.from(stored));
+        Thread.sleep(5);
+
+        // Whoever holds the stolen token keeps refreshing; each new pair still dates from the sign-in.
+        AuthResponse refreshed = authService.refresh(stolen, null);
+        assertThat(jwtService.parse(refreshed.refreshToken()).sessionStartedAt())
+                .isEqualTo(jwtService.parse(stolen).sessionStartedAt());
+
+        authService.changePassword(UserPrincipal.from(stored),
+                new ChangePasswordRequest("secret123", "brand-new-password"));
+
+        assertThatThrownBy(() -> authService.refresh(refreshed.refreshToken(), null))
+                .isInstanceOf(InvalidCredentialsException.class);
     }
 
     @Test

@@ -265,6 +265,75 @@ class MonitorRequestOptionsIntegrationTest {
     }
 
     @Test
+    void anApiKeyCannotSendSavedSecretsToANewHost() throws Exception {
+        long id = createFull();
+        String key = apiKey();
+
+        // The secret is write-only, but the check sends it: pointing the monitor at another
+        // server while keeping the value would hand it to whoever runs that server.
+        mockMvc.perform(put("/api/monitors/" + id).header(HttpHeaders.AUTHORIZATION, key)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"GraphQL","url":"https://collector.example.net/graphql","method":"POST",
+                                 "expectedStatuses":[200],"intervalSeconds":300,"timeoutMs":5000,
+                                 "headers":[{"name":"Authorization","value":null}],"requestBody":"{}"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors.headers")
+                        .value("Enter the Authorization header again: saved values aren't sent to a new host"));
+
+        Monitor saved = monitors.findWithHeadersById(id).orElseThrow();
+        assertThat(saved.getUrl()).isEqualTo("https://api.example.com/graphql");
+        assertThat(saved.getHeaders().getFirst().getValue()).isEqualTo("Bearer s3cret");
+    }
+
+    @Test
+    void aSavedBodyIsNotSentToANewHostEither() throws Exception {
+        long id = createFull();
+
+        update(id, """
+                {"name":"GraphQL","url":"https://collector.example.net/graphql","method":"POST",
+                 "expectedStatuses":[200],"intervalSeconds":300,"timeoutMs":5000,
+                 "headers":[{"name":"Authorization","value":"Bearer other"}]}
+                """)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors.requestBody")
+                        .value("Enter the request body again: a saved body isn't sent to a new host"));
+
+        assertThat(monitors.findById(id).orElseThrow().getUrl()).isEqualTo("https://api.example.com/graphql");
+    }
+
+    @Test
+    void movingToANewHostWorksWithTheValuesTypedAgain() throws Exception {
+        long id = createFull();
+
+        update(id, """
+                {"name":"GraphQL","url":"https://graphql.example.org/","method":"POST",
+                 "expectedStatuses":[200],"intervalSeconds":300,"timeoutMs":5000,
+                 "headers":[{"name":"Authorization","value":"Bearer n3w"}],"requestBody":"{}"}
+                """).andExpect(status().isOk());
+
+        Monitor saved = monitors.findWithHeadersById(id).orElseThrow();
+        assertThat(saved.getHeaders()).extracting(MonitorHeader::getValue).containsExactly("Bearer n3w");
+        assertThat(saved.getRequestBody()).isEqualTo("{}");
+    }
+
+    @Test
+    void aNewPathOnTheSameHostKeepsSavedSecrets() throws Exception {
+        long id = createFull();
+
+        update(id, """
+                {"name":"GraphQL","url":"https://API.example.com/v2/graphql","method":"POST",
+                 "expectedStatuses":[200],"intervalSeconds":300,"timeoutMs":5000,
+                 "headers":[{"name":"Authorization","value":null}]}
+                """).andExpect(status().isOk());
+
+        Monitor saved = monitors.findWithHeadersById(id).orElseThrow();
+        assertThat(saved.getHeaders().getFirst().getValue()).isEqualTo("Bearer s3cret");
+        assertThat(saved.getRequestBody()).isEqualTo("{\"query\":\"{ health }\"}");
+    }
+
+    @Test
     void aBlankBodyClearsIt() throws Exception {
         long id = createFull();
 

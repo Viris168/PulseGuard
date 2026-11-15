@@ -1,7 +1,7 @@
 ---
 title: How incidents work
 summary: When PulseGuard decides a monitor is down, opens an incident and alerts you, and when it closes it again.
-describes: incident/MonitorStateMachine.java, monitor/MonitorService.java, check/CheckExecutor.java, stats/RetentionService.java, incident/IncidentEngine.java, heartbeat/HeartbeatSchedule.java, enumeration/ErrorType.java, application.yaml (pulseguard.incident)
+describes: ai/IncidentSummaryService.java, incident/MonitorStateMachine.java, monitor/MonitorService.java, check/CheckExecutor.java, stats/RetentionService.java, incident/IncidentEngine.java, heartbeat/HeartbeatSchedule.java, enumeration/ErrorType.java, application.yaml (pulseguard.incident)
 ---
 
 An **incident** is a confirmed outage: a period when a monitor was down. PulseGuard is careful
@@ -79,7 +79,8 @@ Every incident has a page (under **Incidents**) with:
 - when it started, when it was resolved and how long it lasted;
 - a **timeline**: the failed checks, when it was confirmed, which alerts were sent, and the
   passing checks that resolved it;
-- a short **summary** in plain words.
+- a short **summary** in plain words. For a monitor you shared with **Ask AI**, the AI writes it;
+  otherwise PulseGuard builds it from the incident's facts.
 
 A monitor has at most one open incident at a time. Incidents are kept for as long as the monitor
 exists. The individual checks behind them are kept for 7 days on Free and up to 62 days on Pro

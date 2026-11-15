@@ -127,6 +127,29 @@ class JwtServiceTest {
     }
 
     @Test
+    void carriesTheSessionStartItWasGiven() {
+        java.time.Instant signedIn = java.time.Instant.ofEpochMilli(1_794_000_000_123L);
+
+        assertThat(jwtService.parse(jwtService.generateRefreshToken(principal(), signedIn)).sessionStartedAt())
+                .isEqualTo(signedIn);
+    }
+
+    @Test
+    void aTokenFromBeforeTheSessionClaimDatesItsSessionFromIssuedAt() {
+        java.time.Instant issued = java.time.Instant.parse("2026-11-01T10:00:00Z");
+        String legacy = io.jsonwebtoken.Jwts.builder()
+                .id("legacy").issuer("pulseguard").audience().add("pulseguard-api").and()
+                .subject("42").claim("email", "a@example.com").claim("typ", "REFRESH")
+                .issuedAt(java.util.Date.from(issued))
+                .expiration(java.util.Date.from(java.time.Instant.now().plusSeconds(3600)))
+                .signWith(io.jsonwebtoken.security.Keys.hmacShaKeyFor(
+                        io.jsonwebtoken.io.Decoders.BASE64.decode(SECRET)))
+                .compact();
+
+        assertThat(jwtService.parse(legacy).sessionStartedAt()).isEqualTo(issued);
+    }
+
+    @Test
     void rejectsAGarbageToken() {
         assertThatThrownBy(() -> jwtService.parse("not.a.jwt"))
                 .isInstanceOfAny(JwtException.class, IllegalArgumentException.class);

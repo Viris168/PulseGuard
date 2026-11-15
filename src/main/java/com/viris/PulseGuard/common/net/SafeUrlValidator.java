@@ -18,6 +18,10 @@ import java.util.Locale;
  * (DNS rebinding). Validation happens after resolution, never on the string alone, and
  * every address a host resolves to must be public.
  *
+ * <p>Checks also connect through {@link #resolvePublic}, so the address that passed is the
+ * address that is dialled: resolving once here and again in the HTTP client would let a
+ * rebinding host answer differently the second time.
+ *
  * <p>Rejection messages never echo the resolved address, so the API cannot be used as
  * an internal-network port scanner.
  */
@@ -58,6 +62,14 @@ public class SafeUrlValidator {
             throw new InvalidMonitorUrlException("missing host");
         }
 
+        resolvePublic(host);
+    }
+
+    /**
+     * Every address {@code host} resolves to, or an exception when it does not resolve or any
+     * answer is private: one private address is enough to reach the internal network.
+     */
+    public InetAddress[] resolvePublic(String host) {
         InetAddress[] addresses;
         try {
             addresses = resolver.resolve(host);
@@ -67,16 +79,20 @@ public class SafeUrlValidator {
         if (addresses.length == 0) {
             throw new InvalidMonitorUrlException("host does not resolve", ErrorType.DNS);
         }
-
-        // Every answer must be public: one private address is enough to reach the internal network.
         for (InetAddress address : addresses) {
-            if (isPrivate(address)) {
+            if (isBlocked(address)) {
                 throw new InvalidMonitorUrlException("host resolves to a private or reserved address");
             }
         }
+        return addresses;
     }
 
-    private boolean isPrivate(InetAddress address) {
+    /** Overridden only by tests whose target is a local MockWebServer. */
+    protected boolean isBlocked(InetAddress address) {
+        return isPrivate(address);
+    }
+
+    private static boolean isPrivate(InetAddress address) {
         if (address.isLoopbackAddress()      // 127.0.0.0/8, ::1
                 || address.isAnyLocalAddress()   // 0.0.0.0, ::
                 || address.isLinkLocalAddress()  // 169.254.0.0/16 (incl. cloud metadata), fe80::/10

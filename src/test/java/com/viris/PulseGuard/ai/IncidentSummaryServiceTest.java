@@ -23,6 +23,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -33,6 +34,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -48,6 +50,8 @@ class IncidentSummaryServiceTest {
 
     private final IncidentQueryService queries = mock(IncidentQueryService.class);
     private final IncidentRepository incidents = mock(IncidentRepository.class);
+    private final AiAccessRepository access = mock(AiAccessRepository.class);
+    private SummaryLease lease = incidentId -> true;
     private final ChatModel model = mock(ChatModel.class);
     @SuppressWarnings("unchecked")
     private final ObjectProvider<ChatModel> modelProvider = mock(ObjectProvider.class);
@@ -57,6 +61,16 @@ class IncidentSummaryServiceTest {
     void setUp() {
         executor = Executors.newVirtualThreadPerTaskExecutor();
         when(modelProvider.getIfAvailable()).thenReturn(model);
+        sharing(true, Set.of());
+    }
+
+    /** The user's Ask AI consent: on or off, and either every monitor or just {@code monitorIds}. */
+    private void sharing(boolean enabled, Set<Long> monitorIds) {
+        AiAccess consent = new AiAccess(USER_ID);
+        consent.setEnabled(enabled);
+        consent.setAllMonitors(monitorIds.isEmpty());
+        consent.setMonitorIds(new java.util.HashSet<>(monitorIds));
+        when(access.findById(USER_ID)).thenReturn(Optional.of(consent));
     }
 
     @AfterEach
@@ -210,6 +224,59 @@ class IncidentSummaryServiceTest {
         }));
     }
 
+    @Test
+    void sendsNothingToTheProviderWithoutAskAiConsent() {
+        stored(openIncident(null, null));
+        sharing(false, Set.of());
+
+        assertThat(service().summarize(USER_ID, INCIDENT_ID)).isEmpty();
+        verifyNoInteractions(model);
+    }
+
+    @Test
+    void sendsNothingForAMonitorTheUserDidNotShare() {
+        stored(openIncident(null, null));
+        sharing(true, Set.of(99L)); // the incident's monitor is 10
+
+        assertThat(service().summarize(USER_ID, INCIDENT_ID)).isEmpty();
+        verifyNoInteractions(model);
+    }
+
+    @Test
+    void whileAnotherCallHoldsTheLeaseServesTheStoredSummaryWithoutPaying() {
+        Instant old = NOW.minus(TTL.plusMinutes(5)); // due for a rewrite
+        stored(openIncident("Earlier summary.", old));
+        lease = incidentId -> false;
+
+        assertThat(service().summarize(USER_ID, INCIDENT_ID))
+                .contains(new IncidentSummaryResponse("Earlier summary.", old));
+        verifyNoInteractions(model);
+    }
+
+    @Test
+    void whileTheLeaseIsTakenAndNothingIsStoredTheRuleBasedSummaryIsUsed() {
+        stored(openIncident(null, null));
+        lease = incidentId -> false;
+
+        assertThat(service().summarize(USER_ID, INCIDENT_ID)).isEmpty();
+        verifyNoInteractions(model);
+    }
+
+    @Test
+    void manySimultaneousCacheMissesMakeOneModelCall() {
+        stored(openIncident(null, null));
+        answer("One call.");
+        java.util.concurrent.atomic.AtomicBoolean taken = new java.util.concurrent.atomic.AtomicBoolean();
+        lease = incidentId -> taken.compareAndSet(false, true);
+        IncidentSummaryService service = service();
+
+        for (int i = 0; i < 5; i++) {
+            service.summarize(USER_ID, INCIDENT_ID);
+        }
+
+        verify(model, times(1)).call(any(Prompt.class));
+    }
+
     // ─── helpers ─────────────────────────────────────────────────────────────
 
     private IncidentSummaryService service() {
@@ -217,8 +284,8 @@ class IncidentSummaryServiceTest {
     }
 
     private IncidentSummaryService service(AiProperties properties) {
-        return new IncidentSummaryService(queries, incidents, new ModelCaller(modelProvider, properties, executor),
-                properties, Clock.fixed(NOW, ZoneOffset.UTC));
+        return new IncidentSummaryService(queries, incidents, access, lease,
+                new ModelCaller(modelProvider, properties, executor), properties, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     /** The incident as the owner's detail query and the cache lookup both see it. */

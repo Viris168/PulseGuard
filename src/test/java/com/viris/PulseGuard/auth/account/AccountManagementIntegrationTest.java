@@ -233,6 +233,36 @@ class AccountManagementIntegrationTest {
         verify(stripe, timeout(5000)).updateCustomerEmail("cus_123", "alice.new@example.com");
     }
 
+    @Test
+    void aPasswordResetCancelsAPendingEmailChange() throws Exception {
+        // Someone who knew the password asks to move the account to their own address...
+        postJson("/api/auth/email", alice, Map.of("newEmail", "intruder@example.com", "currentPassword", "Sup3rSecret!"))
+                .andExpect(status().isAccepted());
+        String confirm = tokenFrom(mailTo("intruder@example.com", "Confirm your new email for PulseGuard"));
+
+        // ...then the owner takes the account back through "forgot password".
+        postJson("/api/auth/forgot-password", null, Map.of("email", "alice@example.com"));
+        String reset = tokenFrom(mailTo("alice@example.com", "Reset your PulseGuard password"));
+        postJson("/api/auth/reset-password", null, Map.of("token", reset, "newPassword", "N3w-Passw0rd!"))
+                .andExpect(status().isNoContent());
+
+        postJson("/api/auth/confirm-email", null, Map.of("token", confirm)).andExpect(status().isBadRequest());
+        assertThat(users.findByEmail("alice@example.com")).isPresent();
+    }
+
+    @Test
+    void aPasswordChangeCancelsAPendingEmailChange() throws Exception {
+        postJson("/api/auth/email", alice, Map.of("newEmail", "intruder@example.com", "currentPassword", "Sup3rSecret!"))
+                .andExpect(status().isAccepted());
+        String confirm = tokenFrom(mailTo("intruder@example.com", "Confirm your new email for PulseGuard"));
+
+        postJson("/api/auth/password", alice, Map.of("currentPassword", "Sup3rSecret!", "newPassword", "N3w-Passw0rd!"))
+                .andExpect(status().isOk());
+
+        postJson("/api/auth/confirm-email", null, Map.of("token", confirm)).andExpect(status().isBadRequest());
+        assertThat(users.findByEmail("alice@example.com")).isPresent();
+    }
+
     private long defaultChannelId(Long userId) {
         return channels.findAllByUserId(userId).stream()
                 .filter(c -> c.getType() == ChannelType.EMAIL).findFirst().orElseThrow().getId();
