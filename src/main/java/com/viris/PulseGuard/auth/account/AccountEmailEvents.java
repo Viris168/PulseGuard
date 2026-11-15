@@ -24,7 +24,8 @@ public final class AccountEmailEvents {
     }
 
     /** Someone added {@code email} as an alert channel; it has to confirm before alerts go there. */
-    public record ChannelConfirmationRequested(String email, String ownerName, String token, Instant expiresAt) {
+    public record ChannelConfirmationRequested(String email, String ownerName, String ownerEmail, String token,
+                                               Instant expiresAt) {
         @Override
         public String toString() {
             return "ChannelConfirmationRequested";

@@ -69,16 +69,24 @@ public class AccountMailer {
     @Async
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onChannelConfirmationRequested(AccountEmailEvents.ChannelConfirmationRequested event) {
+        // Sent to an address anyone can type in, so the account's name is quoted and paired with
+        // its email: it must read as a name, never as part of PulseGuard's own message.
         send(event.email(), "Confirm PulseGuard alerts to this address", """
                 Hello,
 
-                %s added this address to receive PulseGuard alerts when their websites or APIs go
-                down. If you want those alerts, confirm here:
+                A PulseGuard user, "%s" (%s), added this address to receive alerts when their
+                websites or APIs go down. If you want those alerts, confirm here:
                 %s
 
                 The link expires in %s. If you don't know them, ignore this email: you won't get
                 any alerts unless you confirm.
-                """.formatted(event.ownerName(), app.url("/confirm-channel?token=" + event.token()), expiresIn(event.expiresAt())));
+                """.formatted(oneLine(event.ownerName()), event.ownerEmail(),
+                app.url("/confirm-channel?token=" + event.token()), expiresIn(event.expiresAt())));
+    }
+
+    /** Names saved before line breaks were refused may still hold them. */
+    static String oneLine(String name) {
+        return name == null ? "" : name.replaceAll("\\p{Cntrl}+", " ").strip();
     }
 
     private void send(String to, String subject, String body) {

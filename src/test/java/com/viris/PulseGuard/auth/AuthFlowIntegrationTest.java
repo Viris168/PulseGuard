@@ -237,6 +237,23 @@ class AuthFlowIntegrationTest {
     }
 
     @Test
+    void aNameCannotCarryLineBreaksIntoEmailsSentToOthers() throws Exception {
+        String multiLine = "{\"name\":\"Viris\\n\\nUrgent: your account is locked, visit evil.example\"}";
+        mockMvc.perform(patch("/api/auth/me")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(multiLine))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors.name").value("Name can't contain line breaks"));
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"Eve\\nUrgent","email":"eve@example.com","password":"secret123"}"""))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors.name").value("Name can't contain line breaks"));
+    }
+
+    @Test
     void renamingNeedsAuthentication() throws Exception {
         mockMvc.perform(patch("/api/auth/me")
                         .contentType(MediaType.APPLICATION_JSON)
