@@ -43,6 +43,10 @@ public class Subscription {
     @Column(name = "cancel_at_period_end", nullable = false)
     private boolean cancelAtPeriodEnd;
 
+    /** When the Stripe read behind this state began; an older read must not overwrite it. */
+    @Column(name = "snapshot_at")
+    private Instant snapshotAt;
+
     // No setter: stamped on every insert and update.
     @Setter(AccessLevel.NONE)
     @Column(name = "updated_at", nullable = false)

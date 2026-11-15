@@ -17,6 +17,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.Set;
 
@@ -93,6 +94,9 @@ public class StripeWebhookService {
         }
 
         // Outside the transaction: a slow Stripe call must not hold a connection and row locks.
+        // Concurrent deliveries can therefore reach the lock out of order; readAt lets the sync
+        // tell an older read from a newer one.
+        Instant readAt = Instant.now();
         SubscriptionSnapshot snapshot = gateway.retrieveSubscription(subscriptionId.get());
         try {
             writeTx.executeWithoutResult(status -> {
@@ -100,7 +104,7 @@ public class StripeWebhookService {
                     log.info("Skipping Stripe event {} ({}): processed by a concurrent delivery", eventId, type);
                     return;
                 }
-                syncService.sync(snapshot);
+                syncService.sync(snapshot, readAt);
                 log.info("Processed Stripe event {} ({}) for subscription {}", eventId, type, snapshot.id());
             });
         } catch (RuntimeException e) {
